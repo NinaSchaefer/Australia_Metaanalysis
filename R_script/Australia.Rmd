@@ -1,0 +1,1136 @@
+---
+title: "Australia"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Summary of steps taken in analyses
+
+General guidance from: http://www.metafor-project.org/doku.php 
+
+Ensuring starting with a clean environment
+```{r}
+rm(list=ls())
+#turn off sci notation: 
+options (scipen = 999)
+```
+
+Preparation of .csv files
+
+Criteria
+includes only experiments
+includes only species determined "invasive", "NI", "introduced"
+includes only species identified to species level
+includes only those which report "percent cover" or "density" or "richness" or "biomass", "proportions" have been calculated back into numbers to calculate density
+for studies reporting on single species as well as species groups combined (i.e. all invasives) only species were recorded
+
+ 
+
+#Preparation for analyses
+
+
+##Load packages
+```{r}
+library(rotl)
+library(ape)
+library(metafor)
+library(orchaRd)
+library(knitr)
+library(broom)
+library(clubSandwich)
+library(multcomp)
+library(kableExtra)
+library(downloadthis)
+library(tidyverse)  
+```
+
+
+##Read in and tidy data
+```{r}
+meta<-read.csv("data/Dataset_Australia_new.csv",header=T, fileEncoding="latin1") #read in data
+
+
+names(meta)
+str(meta)
+
+#changing many columns to factors/numeric: 
+meta <-
+  meta %>% mutate_at (
+    vars(
+      Year,
+      ReplicatesControl,
+      ReplicatesTreatment,
+      Reporteddensityperm2
+    ),
+    funs(as.numeric)
+  ) %>%
+  mutate_at(vars(
+    Study,
+    Author,
+    Parameter,
+    Group,
+    TaxonomicGroup,
+    Species,
+    Status.STUDY,
+    Status.AUS,
+    Control,
+    Treatment,
+    End..Y.N.,
+    Experiment,
+    Country,
+    Location,
+    Feature,
+    Orientation_Detail
+    ),
+    funs(as.factor))
+
+str(meta)
+
+```
+
+Analysing only studies from AUS
+#excludes those with status==unclear|unassigned|cryptogenic
+```{r}
+#exclude species with an unclear status
+meta_NvsNI_Australia <- meta %>%
+        filter(Status.AUS=="NI" | Status.AUS=="N")
+
+
+meta <- meta_NvsNI_Australia
+meta<- meta %>% droplevels() #gets rid of parameters and groups not present anymore
+
+
+#combine all algae
+levels(meta$TaxonomicGroup)
+
+levels(meta$TaxonomicGroup) <- c("Anthozoans","Ascidians", "Barnacles", "Bivalves", "Algae", "Bryozoans", "Algae", "Polychaetes", "Poriferans", "Algae")
+
+levels(meta$TaxonomicGroup)
+
+levels(meta$Orientation_Detail)
+#remove feature orientation_vertdown and orientation_vertup, as only upfacing is considered natural
+meta <- meta %>%
+        filter(Orientation_Detail=="Orientation_upvert" | Orientation_Detail=="Orientation_updown" |Orientation_Detail=="")
+meta<- meta %>% droplevels() #gets rid of parameters and groups not present anymore
+levels(meta$Orientation_Detail)
+```
+
+
+## Creating Reference Columns
+
+Checking that there are sufficient identifier and reference columns for our random 
+effects:
+
+* Adding  **Effect ID** which represents each unique datapoint in the database.  
+* **Study** already exists - showing data points which come from the same study.  
+* We also add **experiment ID**, which shows which datapoints come from the same 
+experiment. We do this by grouping by study, location, and other reference columns
+that identify unique experiments within the same study. 
+* Duration is not included as we are incorporating repeated measures time points
+- and therefore is not a unique identifier for experiment ID. 
+
+These are mostly important for the random effects and independence components of the analysis.
+
+```{r}
+# create column with unique data points.. row names essentially
+meta <- rowid_to_column(meta, "Effect_ID")
+meta$Effect_ID <- as.factor(meta$Effect_ID)
+
+meta$Study_Experiment <-
+  paste(meta$Study, meta$Experiment, sep = "_")
+meta$Study_Experiment <-as.factor(meta$Study_Experiment)
+
+meta$Study_Location <-
+  paste(meta$Study, meta$Location, sep = "_")
+meta$Study_Location <-as.factor(meta$Study_Location)
+
+meta$Study_Experiment_Duration <-
+  paste(meta$Study_Experiment, meta$Duration, sep = "_")
+meta$Study_Experiment_Duration <-as.factor(meta$Study_Experiment_Duration)
+
+meta$Feature_Status <-
+  paste(meta$Feature, meta$Status.AUS, sep = "_")
+meta$Feature_Status <-as.factor(meta$Feature_Status)
+
+meta$Feature_TaxonomicGroup <-
+  paste(meta$Feature, meta$TaxonomicGroup, sep = "_")
+meta$Feature_TaxonomicGroup <-as.factor(meta$Feature_TaxonomicGroup)
+
+#need an ID to define experiment groupings
+Exp_ID <- meta %>%
+  group_by(Study,
+           Study_Experiment,
+           Species,
+           Study_Experiment_Duration,
+           Feature) %>%
+  summarise(num_instances = n())
+
+# row ID for exp number
+Exp_ID <- rowid_to_column(Exp_ID, "Exp_ID")
+# now join back to main dataset based based on this number:
+meta <- left_join(meta,
+                  Exp_ID,
+                  by = c("Study",
+                         "Study_Experiment",
+                         "Species",
+                         "Study_Experiment_Duration",
+                         "Feature"))
+meta$Exp_ID <- as.factor(meta$Exp_ID)
+
+rm(Exp_ID) # leaving in for now, to check numbers
+
+```
+
+
+##Note on definitions:
+
+**Parameter:** these are  
+```{r}
+levels(meta$Parameter)
+```
+
+**TaxonomicGroup:** these are substrates that are considered ARTIFICIAL and are either completely manufactured or have undergone a some kind of transformative process: 
+```{r}
+levels(meta$TaxonomicGroup)
+```
+
+
+**Number of datapoints per group
+```{r}
+table(meta$Status.AUS)
+table(meta$TaxonomicGroup)
+```
+
+
+##Dealing with ZEROS
+
+The method wer're using for ESCALC - the ratio or means, cannot handle zeros in the denominator/numerator as this affects the results (not sure if they're 
+skipped or create NANs).
+
+It is preffered to keep the data - rather than just remove the zeros - as the means or SDs of controls and treatments that contain zeros, make up XX of the data.
+
+
+```{r}
+#first lets see how many zeros there are:
+meta_zeros <- meta %>% 
+        filter(MeanControl==0.0 | MeanTreatment==0.0 | SDControl==0.0 | SDTreatment ==0.0)
+# XX rows with zeros in means or SDs
+
+#Adding 0.5 to everything!
+meta_05 <- meta %>% 
+        mutate_at(vars(c("SDControl", "SDTreatment", "MeanControl", "MeanTreatment")),
+                  ~.+0.5)
+
+meta <- meta_05
+```
+
+
+##Check for sufficient replication -> make reduced datasets otherwise
+
+For later in the code, these levels with < 5 data points or coming from <3 experiments need to be dropped
+
+```{r, results='hide'}
+
+#checking how many studies are in each level:
+Status_levels<-levels(meta$Status.AUS)
+Status_EffectID<- map(Status_levels, ~length(unique(meta$Effect_ID[meta$Status.AUS ==.])))
+Status_Study_Experiment<- map(Status_levels, ~length(unique(meta$Study_Experiment[meta$Status.AUS ==.])))
+Status_Study_Location<- map(Status_levels, ~length(unique(meta$Study_Location[meta$Status.AUS ==.])))
+
+#checking how many studies are in each level:
+Feature_Status_levels<-levels(meta$Feature_Status)
+Feature_Status_EffectID<- map(Feature_Status_levels, ~length(unique(meta$Effect_ID[meta$Feature_Status ==.])))
+Feature_Status_Study_Experiment<- map(Feature_Status_levels, ~length(unique(meta$Study_Experiment[meta$Feature_Status ==.])))
+Feature_Status_Study_Location<- map(Feature_Status_levels, ~length(unique(meta$Study_Location[meta$Feature_Status ==.])))
+
+#checking how many studies are in each level:
+Feature_TaxonomicGroup_levels<-levels(meta$Feature_TaxonomicGroup)
+Feature_TaxonomicGroup_EffectID<- map(Feature_TaxonomicGroup_levels, ~length(unique(meta$Effect_ID[meta$Feature_TaxonomicGroup ==.])))
+Feature_TaxonomicGroup_Study_Experiment<- map(Feature_TaxonomicGroup_levels, ~length(unique(meta$Study_Experiment[meta$Feature_TaxonomicGroup ==.])))
+Feature_TaxonomicGroup_Study_Location<- map(Feature_TaxonomicGroup_levels, ~length(unique(meta$Study_Location[meta$Feature_TaxonomicGroup ==.])))
+
+#
+meta_reduced <- subset(meta, Feature_TaxonomicGroup!="Movement_Anthozoans") 
+meta_reduced <- subset(meta_reduced, Feature_TaxonomicGroup!="Orientation_up_Anthozoans") 
+meta_reduced <- subset(meta_reduced, Feature_TaxonomicGroup!="Substrate_Algae") 
+meta_reduced <- subset(meta_reduced, Feature_TaxonomicGroup!="Substrate_Anthozoans") 
+meta_reduced<- meta_reduced %>% droplevels() 
+
+```
+
+## Accounting for non-independence
+
+Partitioning the "n"
+
+Accounting for instances where the experimental error is shared between datapoints 
+rather than being independent is an important step. This is because the meta-regression 
+models we're using assume independence, unless told otherwise.
+
+Here we partition the replicates of the controls and treatments depending on whether
+they are shared or not.
+
+* when grouped by control.. how many treatment TYPES are there? (ie cases of shared 
+treatments) 
+* when grouped by treatment.. how many control TYPES are there? (ie cases of shared 
+controls) 
+
+
+Partitioning based on Control: 
+```{r}
+#Adding in a new column to the dataset for the reduced controls per treatment
+
+meta <- meta %>%
+  group_by(Exp_ID) %>%
+  mutate(unique_types = n_distinct(Treatment))
+
+# Partition the N based on these results:
+meta <- meta %>%
+  mutate(reducedReplicatesControl = (ReplicatesControl / unique_types))
+
+
+
+meta_reduced <- meta_reduced %>%
+  group_by(Exp_ID) %>%
+  mutate(unique_types = n_distinct(Treatment))
+
+# Partition the N based on these results:
+meta_reduced <- meta_reduced %>%
+  mutate(reducedReplicatesControl = (ReplicatesControl / unique_types))
+
+```
+
+Partitioning based on Treatment: 
+```{r}
+#Adding in a new column to the dataset for the reduced replicates per control
+
+meta <- meta %>%
+  group_by(Exp_ID) %>%
+  mutate(unique_types = n_distinct(Control))
+
+# Partition the N based on these results:
+meta <- meta %>%
+  mutate(reducedReplicatesTreatment = (ReplicatesTreatment / unique_types))
+
+
+meta_reduced <- meta_reduced %>%
+  group_by(Exp_ID) %>%
+  mutate(unique_types = n_distinct(Control))
+
+# Partition the N based on these results:
+meta_reduced <- meta_reduced %>%
+  mutate(reducedReplicatesTreatment = (ReplicatesTreatment / unique_types))
+
+
+```
+# ESCALC
+Have now switched Control and Treatment to ensure the 
+Orchard plot is still inline with the standard meta plots.
+This means we now have: 
+
+Group 1 = TREATMENT - Artificial substrates
+Group 2 = CONTROL - Natural substrates
+(Therefore +ve results favour treatments, and -ve results favour control)
+
+Calculating the effect sizes and outcome measures.
+We're using the Risk Ratio - in the form of Ratio of Means,
+and we will take the log of this ratio - centered around zero. 
+
+```{r, results='hide'}
+
+# Escalc funtion:
+# meta <-  escalc(
+#           m1i = meta$MeanTreatment,
+#           sd1i = meta$SDTreatment,
+#           n1i = meta$ReplicatesTreatment,
+#           m2i = meta$MeanControl,
+#           sd2i = meta$SDControl,
+#           n2i = meta$reducedReplicatesControl,
+#           measure = "ROM",
+#           append = TRUE,
+#           data = meta
+#         )
+
+lnRR <- function(CMean, CSD, CN, EMean, ESD, EN){
+yi<-log( EMean / CMean)
+vi <- CSD^2 / (CN * CMean^2) + ESD^2 / (EN * EMean^2)
+print(data.frame(yi,vi))
+}
+
+meta.lnRR <- lnRR(
+  CMean = meta$MeanControl,
+  CSD = meta$SDControl,
+  CN = meta$reducedReplicatesControl,
+  EMean = meta$MeanTreatment,
+  ESD = meta$SDTreatment,
+  EN = meta$reducedReplicatesTreatment)
+
+meta<- cbind(meta, meta.lnRR)
+
+meta_reduced.lnRR <- lnRR(
+  CMean = meta_reduced$MeanControl,
+  CSD = meta_reduced$SDControl,
+  CN = meta_reduced$reducedReplicatesControl,
+  EMean = meta_reduced$MeanTreatment,
+  ESD = meta_reduced$SDTreatment,
+  EN = meta_reduced$reducedReplicatesTreatment)
+
+meta_reduced<- cbind(meta_reduced, meta_reduced.lnRR)
+
+
+```
+
+# VCV MATRICES
+To account for multiple timepoints coming from the same tile/experiment
+this calculates a matrix which is used as "V" in the models that follow.
+For the models the "Yi" comes from Escalc, and the "VI" will come from this
+V. 
+
+This VCV matrix uses **Study** as a clustering parameter, which will then account for all 
+non-independence in the experiments within study - in this case that includes, 
+repeated measures sampling **AND** multiple measures from the same experiment
+(measurement parameters). [which is only a problem for the "All" models].
+
+```{r, include=TRUE}
+V <-
+  impute_covariance_matrix(
+    vi = meta$vi,
+    cluster = meta$Study,
+    r = 0.5,
+    return_list = F
+  )
+
+
+#This is just a test of the vcv functionality.
+# The vcv is calculated for each model or group at the modelling stage.
+V.check <-
+  impute_covariance_matrix(
+    vi = meta$vi,
+    cluster = meta$Study,
+    r = 0.5,
+    return_list = F
+  )
+
+# using the return_list = F option is not recommended when the elements aren't
+# ordered... which could cause issues, there's a check to see that they are correct.
+
+#all.equal(meta$vi, diag(V.check))
+
+
+V_reduced <-
+  impute_covariance_matrix(
+    vi = meta_reduced$vi,
+    cluster = meta_reduced$Study,
+    r = 0.5,
+    return_list = F
+  )
+
+
+#This is just a test of the vcv functionality.
+# The vcv is calculated for each model or group at the modelling stage.
+V_reduced.check <-
+  impute_covariance_matrix(
+    vi = meta_reduced$vi,
+    cluster = meta_reduced$Study,
+    r = 0.5,
+    return_list = F
+  )
+
+# using the return_list = F option is not recommended when the elements aren't
+# ordered... which could cause issues, there's a check to see that they are correct.
+
+#all.equal(meta_reduced$vi, diag(V_reduced.check))
+
+```
+
+
+# PHYLOGENETIC TREE
+Created phylogenetic tree from the rotl package examples and using the 
+tree of life database: https://tree.opentreeoflife.org 
+```{r}
+
+unique(meta$Species)
+#Having both a genus and a species of the same genus in the dataset does not work, as the one to genus name is excluded from the tree. To be most conservative, all species are renamed to genus level only.
+#correct names-B. magnicoecum does not exist, as unsure which one to pick- just genus name did not work-included as B. anceps to make it work
+
+meta$Species <-
+  sub("Botrylloides magnicoecum", "Botrylloides anceps", meta$Species)
+meta$Species <-
+  sub("Bugula neritina", "Bugula", meta$Species)
+meta$Species <-
+  sub("Bugula stolonifera", "Bugula", meta$Species)
+meta$Species <-
+  sub("Bugula flabellata", "Bugula", meta$Species)
+meta$Species <-
+  sub("Bugula", "Bugula (genus in Opisthokonta)", meta$Species)
+meta$Species <-
+  sub("Galeolaria caespitosa", "Galeolaria", meta$Species)
+meta$Species <-
+  sub("Bowerbanksia gracilis", "Amathia", meta$Species)
+meta$Species <-
+  sub("Amathia gracilis", "Amathia", meta$Species)
+meta$Species <-
+  sub("Amathia", "Amathia (genus in Lophotrochozoa)", meta$Species)
+meta$Species <-
+  sub("Diplosoma listerianum", "Diplosoma", meta$Species)
+meta$Species <-
+  sub("Diplosoma", "Diplosoma (genus in Bilateria)", meta$Species)
+meta$Species <-
+  sub("Microporella umbracula", "Microporella coronata", meta$Species)
+meta$Species <-
+  sub("Spirobranchus taeniata", "Spirobranchus taeniatus", meta$Species)
+meta$Species <-
+  sub("Spirobranchus taeniatus", "Spirobranchus", meta$Species)
+meta$Species <-
+  sub("Zonaria", "Zonaria (genus in subkingdom SAR)", meta$Species)
+meta$Species <-
+  sub("Martensia", "Martensia (genus in kingdom Archaeplastida)", meta$Species)
+meta$Species <-
+  sub("Feldmannia", "Feldmannia (genus in subkingdom SAR)", meta$Species)
+
+
+
+a <- unique(meta$Species)
+a <- as.character(a)
+a
+
+##need internet connection for this part
+taxa <- tnrs_match_names(names = a)
+
+tree <- tol_induced_subtree(ott_ids = ott_id(taxa))
+
+#remove ott ids to match the species ids
+tree$tip.label <-
+  strip_ott_ids(tree$tip.label, remove_underscores = TRUE)
+
+#plot tree
+plot(tree,
+     cex = .8,
+     label.offset = .1,
+     no.margin = TRUE)
+
+tree <- compute.brlen(tree)
+cor <- vcv(tree, cor = T)
+cor #to see the correlations
+
+# adding phylogeny
+meta$Phylogeny <- meta$Species
+
+
+#for reduced dataset
+unique(meta_reduced$Species)
+
+meta_reduced$Species <-
+  sub("Botrylloides magnicoecum", "Botrylloides anceps", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Bugula neritina", "Bugula", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Bugula stolonifera", "Bugula", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Bugula flabellata", "Bugula", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Bugula", "Bugula (genus in Opisthokonta)", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Galeolaria caespitosa", "Galeolaria", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Bowerbanksia gracilis", "Amathia", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Amathia gracilis", "Amathia", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Amathia", "Amathia (genus in Lophotrochozoa)", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Diplosoma listerianum", "Diplosoma", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Diplosoma", "Diplosoma (genus in Bilateria)", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Microporella umbracula", "Microporella coronata", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Spirobranchus taeniata", "Spirobranchus taeniatus", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Spirobranchus taeniatus", "Spirobranchus", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Zonaria", "Zonaria (genus in subkingdom SAR)", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Martensia", "Martensia (genus in kingdom Archaeplastida)", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Feldmannia", "Feldmannia (genus in subkingdom SAR)", meta_reduced$Species)
+
+b <- unique(meta_reduced$Species)
+b <- as.character(b)
+b
+
+##need internet connection for this part
+taxa2 <- tnrs_match_names(names = b)
+
+
+tree2 <- tol_induced_subtree(ott_ids = ott_id(taxa2))
+
+#remove ott ids to match the species ids
+tree2$tip.label <-
+  strip_ott_ids(tree2$tip.label, remove_underscores = TRUE)
+
+#plot tree
+plot(tree2,
+     cex = .8,
+     label.offset = .1,
+     no.margin = TRUE)
+
+tree2 <- compute.brlen(tree2)
+cor2 <- vcv(tree2, cor2 = T)
+cor2 #to see the correlations
+
+# adding phylogeny
+meta_reduced$Phylogeny <- meta_reduced$Species
+
+```
+
+
+#Models
+
+Now we add the models in a stepwise fashion
+
+The overarching method followed is: 
+
+1. Run the most simple version of the model. Without moderators 
+Check the heterogeniety: a significant amount of heterogeneity means that although you may have a main trend in your effect size, there is STILL a lot of unexplained variability in the effect size. Heterogeneity is genrerally caused by the different ways in which studies are undertaken. There is a rule of thumb to use a as a threshold for when to continue/stop. 
+
+2. Add random effects to the model - then check the heterogeneity again. If this    is still significant - you still have a LOT of unexplained variance of your      effect size between data points.
+
+3. Add moderators to your model - do this one by one and in each case you can check the effect on the heterogeniety. Showing that the variability of the main effect was moderated by. The moderators could be useful predictors of the variability in the effect of
+natural vs artificial substrates on the diversity/growth/cover. 
+
+4. Finally add all moderators and random effects into one model and the amount of heterogeneity remaining should NOT be significant. 
+
+
+
+Setting dpi value for plots (lower number to speed up script)
+```{r}
+plot_dpi <- 300
+#suggestions: 320 - retina, 300 - print, 72 - screen
+```
+
+## Simple model
+
+```{r}
+rom.simple <- rma.mv(yi, V, random = list(~ 1|Study,
+                                          ~ 1|Study_Experiment,
+                                          ~ 1|Study_Experiment_Duration,
+                                          ~ 1|Effect_ID,
+                                          ~ 1|Species,
+                                          ~ 1|Phylogeny),
+                                          R = list(Phylogeny = cor),
+                            method = "REML",
+                            data = meta,
+                            control = list(optimizer="optim"))
+
+forest(rom.simple)
+summary(rom.simple)
+
+i2_ml(rom.simple)
+r2_ml(rom.simple)
+
+sum <- summary(rom.simple)
+sum_I2 <- i2_ml(rom.simple)
+sum_R2 <- r2_ml(rom.simple)
+
+res.simple <- data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
+                          beta = as.numeric(sum$beta),
+                          percentage_increase_or_decrease_on_treatment = (exp(sum$beta)-1)*100,
+                          real.effect.value = exp(sum$beta),
+                          pval = sum$pval,
+                          ci.lb = sum$ci.lb,
+                          ci.ub = sum$ci.ub,
+                          I2_total = sum_I2[[1]],
+                          I2_study = sum_I2[[2]],
+                          I2_Study_Experiment = sum_I2[[3]],
+                          I2_Study_Experiment_Duration = sum_I2[[4]],
+                          I2_Effect_ID = sum_I2[[5]],
+                          I2_Species = sum_I2[[6]],
+                          I2_Phylogeny = sum_I2[[7]],
+                          R2_marginal_fixed = sum_R2[[1]]*100,
+                          R2_conditional_fixed_random = sum_R2[[2]]*100,
+                          Moderator_significance_stat = sum$QM,
+                          Moderator_significance_pval = sum$QMp,
+                          AIC = rom.simple$fit.stats$REML[3])
+        
+res_simple_df <- bind_rows(res.simple)
+write.csv(res_simple_df, file = "./output/summ_simple.csv")
+
+simp_orch <- orchard_plot(rom.simple,  xlab = "lnRR", group="Study_Experiment", data=meta)
+simp_orch
+ggsave(simp_orch, file = "./output/simp_orch.tiff", dpi = plot_dpi,width = 10, height = 8)
+
+simp_cat <- caterpillars(rom.simple, xlab = "lnRR", group="Study_Experiment", data=meta)
+simp_cat
+ggsave(simp_cat, file = "./output/simp_cat.tiff", dpi = plot_dpi)
+```
+
+## Adding Mod FEATURE: STATUS
+### test whether N or NI is different from 0
+```{r, results='hide', fig.show='hide'}
+#using reduced dataset where each level comprises of at least 3 experiments
+rom.FeatureStatus <- rma.mv(yi, V, mods = ~ Feature_Status - 1,
+                                              random = list(~ 1|Study,
+                                                            ~ 1|Study_Experiment,
+                                                            ~ 1|Study_Experiment_Duration,
+                                                            ~ 1|Effect_ID,
+                                                            ~ 1|Species,
+                                                            ~ 1|Phylogeny),
+                                                           R = list(Phylogeny = cor),
+                                                           method = "REML",
+                                                           data = meta,
+                                                           control = list(optimizer ="optim"))
+
+
+sum <- summary(rom.FeatureStatus)
+sum_I2 <- i2_ml(rom.FeatureStatus)
+sum_R2 <- r2_ml(rom.FeatureStatus)
+
+res.FeatureStatus <-data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
+                          beta = as.numeric(sum$beta),
+                          percentage_increase_or_decrease_on_Treatment = (exp(sum$beta)-1)*100,
+                          real.effect.value = exp(sum$beta),
+                          pval = sum$pval,
+                          ci.lb = sum$ci.lb,
+                          ci.ub = sum$ci.ub,
+                          I2_total = sum_I2[[1]],
+                          I2_study = sum_I2[[2]],
+                          I2_Study_Experiment = sum_I2[[3]],
+                          I2_Study_Experiment_Duration = sum_I2[[4]],
+                          I2_Effect_ID = sum_I2[[5]],
+                          I2_Species = sum_I2[[6]],
+                          I2_Phylogeny = sum_I2[[7]],
+                          R2_marginal_fixed = sum_R2[[1]]*100,
+                          R2_conditional_fixed_random = sum_R2[[2]]*100,
+                          Moderator_significance_stat = sum$QM,
+                          Moderator_significance_pval = sum$QMp,
+                          AIC = rom.FeatureStatus$fit.stats$REML[3])
+
+
+res_FeatureStatus_df <- bind_rows(res.FeatureStatus)
+write.csv(res_FeatureStatus_df, file = "./output/summ_FeatureStatus.csv")
+
+
+FeatureStatus_orch <-
+  orchard_plot(rom.FeatureStatus, mod = "Feature_Status", xlab = "Ratio of means", group="Study_Experiment", data=meta) + theme(axis.text.y = element_text(angle = 0, hjust = 1))
+FeatureStatus_orch
+
+ggsave(
+ FeatureStatus_orch,
+  file = "./output/FeatureStatus_orch.tiff",
+  dpi = plot_dpi,
+  width = 10,
+  height = 8
+)
+
+
+FeatureStatus_cat <-
+  caterpillars(rom.FeatureStatus, mod = "Feature_Status", xlab = "Ratio of means", group="Study_Experiment", data=meta)
+FeatureStatus_cat
+ggsave(FeatureStatus_cat, file = "./output/FeatureStatus_cat.tiff", dpi = plot_dpi)
+
+table(meta_reduced$Feature_Status)
+contrast_Status <- summary(glht(
+  rom.FeatureStatus,
+  linfct = c(
+    "Feature_StatusSubstrate_NI - Feature_StatusSubstrate_N = 0",
+    "Feature_StatusOrientation_NI - Feature_StatusOrientation_N = 0",
+    "Feature_StatusMovement_NI - Feature_StatusMovement_N = 0"
+  )
+))
+
+contrasts_list <- mget(ls(pattern = "^contrast_+"))
+summary(contrasts_list)
+
+con_df <- map_df(contrasts_list, ~ broom::tidy(.x), .id = "names")
+
+#save
+write.csv(con_df, file = "./output/contrasts_FeatureStatus.csv")
+
+```
+
+### test for differences in variance between N and NI
+```{r}
+# rom.FeatureStatus.het <- rma.mv(yi, V, mods = ~ Feature_Status,
+#                                               random = list(~ 1|Study,
+#                                                             ~ 1|Study_Experiment,
+#                                                             ~ 1|Study_Experiment_Duration,
+#                                                             ~ 1 + Feature_Status|Effect_ID,
+#                                                             ~ 1|Species,
+#                                                             ~ 1|Phylogeny),
+#                                                            R = list(Phylogeny = cor),
+#                                                            rho = 0,
+#                                                            struc = "HCS",
+#                                                            method = "REML",
+#                                                            test = "t",
+#                                                            data = meta,
+#                                                            control = list(optimizer ="bobyqa")) #added as error occured with optim with “Nelder-Mead”, “BFGS”,  did not work. have not tried “CG”, “L-BFGS-B”, “SANN”, “Brent”)
+# 
+# sum.het <- summary(rom.FeatureStatus.het)
+# sum.het
+# 
+# #estimate of tau 2.2 almost twice as big as tau 2.1
+# 
+# 
+# library(flextable)
+# flextable::flextable(mod_results(rom.FeatureStatus.het, group = "Study_Experiment", mod = "FeatureStatus", data=meta)$mod_table)
+
+```
+
+
+## Adding Mod FEATURE:TAXONOMIC GROUP
+### test whether taxonomic groups are different from 0
+```{r, results='hide', fig.show='hide'}
+#using reduced dataset where each level comprises of at least 3 experiments
+rom.FeatureTaxonomicGroup <- rma.mv(yi, V_reduced, mods = ~ Feature_TaxonomicGroup - 1,
+                                              random = list(~ 1|Study,
+                                                            ~ 1|Study_Experiment,
+                                                            ~ 1|Study_Experiment_Duration,
+                                                            ~ 1|Effect_ID,
+                                                            ~ 1|Species,
+                                                            ~ 1|Phylogeny),
+                                                           R = list(Phylogeny = cor2),
+                                                           method = "REML",
+                                                           data = meta_reduced,
+                                                           control = list(optimizer ="optim"))
+
+
+sum <- summary(rom.FeatureTaxonomicGroup)
+sum_I2 <- i2_ml(rom.FeatureTaxonomicGroup)
+sum_R2 <- r2_ml(rom.FeatureTaxonomicGroup)
+
+res.FeatureTaxonomicGroup <-data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
+                          beta = as.numeric(sum$beta),
+                          percentage_increase_or_decrease_on_treatment = (exp(sum$beta)-1)*100,
+                          real.effect.value = exp(sum$beta),
+                          pval = sum$pval,
+                          ci.lb = sum$ci.lb,
+                          ci.ub = sum$ci.ub,
+                          I2_total = sum_I2[[1]],
+                          I2_study = sum_I2[[2]],
+                          I2_Study_Experiment = sum_I2[[3]],
+                          I2_Study_Experiment_Duration = sum_I2[[4]],
+                          I2_Effect_ID = sum_I2[[5]],
+                          I2_Species = sum_I2[[6]],
+                          I2_Phylogeny = sum_I2[[7]],
+                          R2_marginal_fixed = sum_R2[[1]]*100,
+                          R2_conditional_fixed_random = sum_R2[[2]]*100,
+                          Moderator_significance_stat = sum$QM,
+                          Moderator_significance_pval = sum$QMp,
+                          AIC = rom.FeatureTaxonomicGroup$fit.stats$REML[3])
+
+
+res_FeatureTaxonomicGroup_df <- bind_rows(res.FeatureTaxonomicGroup)
+write.csv(res_FeatureTaxonomicGroup_df, file = "./output/summ_FeatureTaxonomicGroup.csv")
+
+
+FeatureTaxonomicGroup_orch <-
+  orchard_plot(rom.FeatureTaxonomicGroup, mod = "Feature_TaxonomicGroup", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced) + theme(axis.text.y = element_text(angle = 0, hjust = 1))
+FeatureTaxonomicGroup_orch
+
+ggsave(
+ FeatureTaxonomicGroup_orch,
+  file = "./output/FeatureTaxonomicGroup_orch.tiff",
+  dpi = plot_dpi,
+  width = 10,
+  height = 8
+)
+
+FeatureTaxonomicGroup_cat <-
+  caterpillars(rom.FeatureTaxonomicGroup, mod = "Feature_TaxonomicGroup", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced)
+FeatureTaxonomicGroup_cat
+ggsave(FeatureTaxonomicGroup_cat, file = "./output/FeatureTaxonomicGroup_cat.tiff", dpi = plot_dpi)
+
+# checking contrasts(although clear from orchard plot that they don't vary)
+
+table(meta_reduced$Feature_TaxonomicGroup)
+contrast_FeatureTaxonomicGroup <- summary(glht(
+  rom.FeatureTaxonomicGroup,
+  linfct = c(
+    "Feature_TaxonomicGroupSubstrate_Polychaetes - Feature_TaxonomicGroupSubstrate_Bryozoans = 0",
+    "Feature_TaxonomicGroupSubstrate_Polychaetes - Feature_TaxonomicGroupSubstrate_Barnacles = 0",
+    "Feature_TaxonomicGroupSubstrate_Polychaetes - Feature_TaxonomicGroupSubstrate_Ascidians = 0",
+    "Feature_TaxonomicGroupSubstrate_Bryozoans - Feature_TaxonomicGroupSubstrate_Barnacles = 0",
+    "Feature_TaxonomicGroupSubstrate_Bryozoans - Feature_TaxonomicGroupSubstrate_Ascidians = 0",
+    "Feature_TaxonomicGroupSubstrate_Barnacles - Feature_TaxonomicGroupSubstrate_Ascidians = 0",
+    
+    "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Polychaetes = 0",
+    "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Bryozoans = 0",
+    "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Bivalves = 0",
+    "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Barnacles = 0",
+    "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Ascidians = 0",
+    "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Anthozoans = 0",
+    "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Algae = 0",
+    "Feature_TaxonomicGroupOrientation_Polychaetes - Feature_TaxonomicGroupOrientation_Bryozoans = 0",
+    "Feature_TaxonomicGroupOrientation_Polychaetes - Feature_TaxonomicGroupOrientation_Bivalves = 0",
+    "Feature_TaxonomicGroupOrientation_Polychaetes - Feature_TaxonomicGroupOrientation_Barnacles = 0",
+    "Feature_TaxonomicGroupOrientation_Polychaetes - Feature_TaxonomicGroupOrientation_Ascidians = 0",
+    "Feature_TaxonomicGroupOrientation_Polychaetes - Feature_TaxonomicGroupOrientation_Anthozoans = 0",
+    "Feature_TaxonomicGroupOrientation_Polychaetes - Feature_TaxonomicGroupOrientation_Algae = 0",
+    "Feature_TaxonomicGroupOrientation_Bryozoans - Feature_TaxonomicGroupOrientation_Bivalves = 0",
+    "Feature_TaxonomicGroupOrientation_Bryozoans - Feature_TaxonomicGroupOrientation_Barnacles = 0",
+    "Feature_TaxonomicGroupOrientation_Bryozoans - Feature_TaxonomicGroupOrientation_Ascidians = 0",
+    "Feature_TaxonomicGroupOrientation_Bryozoans - Feature_TaxonomicGroupOrientation_Anthozoans = 0",
+    "Feature_TaxonomicGroupOrientation_Bryozoans - Feature_TaxonomicGroupOrientation_Algae = 0",
+    "Feature_TaxonomicGroupOrientation_Bivalves - Feature_TaxonomicGroupOrientation_Barnacles = 0",
+    "Feature_TaxonomicGroupOrientation_Bivalves - Feature_TaxonomicGroupOrientation_Ascidians = 0",
+    "Feature_TaxonomicGroupOrientation_Bivalves - Feature_TaxonomicGroupOrientation_Anthozoans = 0",
+    "Feature_TaxonomicGroupOrientation_Bivalves - Feature_TaxonomicGroupOrientation_Algae = 0",
+    "Feature_TaxonomicGroupOrientation_Barnacles - Feature_TaxonomicGroupOrientation_Ascidians = 0",
+    "Feature_TaxonomicGroupOrientation_Barnacles - Feature_TaxonomicGroupOrientation_Anthozoans = 0",
+    "Feature_TaxonomicGroupOrientation_Barnacles - Feature_TaxonomicGroupOrientation_Algae = 0",
+    "Feature_TaxonomicGroupOrientation_Ascidians - Feature_TaxonomicGroupOrientation_Anthozoans = 0",
+    "Feature_TaxonomicGroupOrientation_Ascidians - Feature_TaxonomicGroupOrientation_Algae = 0",
+    "Feature_TaxonomicGroupOrientation_Anthozoans - Feature_TaxonomicGroupOrientation_Algae = 0",
+    
+    "Feature_TaxonomicGroupMovement_Poriferans - Feature_TaxonomicGroupMovement_Polychaetes = 0",
+    "Feature_TaxonomicGroupMovement_Poriferans - Feature_TaxonomicGroupMovement_Bryozoans = 0",
+    "Feature_TaxonomicGroupMovement_Poriferans - Feature_TaxonomicGroupMovement_Bivalves = 0",
+    "Feature_TaxonomicGroupMovement_Poriferans - Feature_TaxonomicGroupMovement_Barnacles = 0",
+    "Feature_TaxonomicGroupMovement_Poriferans - Feature_TaxonomicGroupMovement_Ascidians = 0",
+    "Feature_TaxonomicGroupMovement_Poriferans - Feature_TaxonomicGroupMovement_Algae = 0",
+    "Feature_TaxonomicGroupMovement_Polychaetes - Feature_TaxonomicGroupMovement_Bryozoans = 0",
+    "Feature_TaxonomicGroupMovement_Polychaetes - Feature_TaxonomicGroupMovement_Bivalves = 0",
+    "Feature_TaxonomicGroupMovement_Polychaetes - Feature_TaxonomicGroupMovement_Barnacles = 0",
+    "Feature_TaxonomicGroupMovement_Polychaetes - Feature_TaxonomicGroupMovement_Ascidians = 0",
+    "Feature_TaxonomicGroupMovement_Polychaetes - Feature_TaxonomicGroupMovement_Algae = 0",
+    "Feature_TaxonomicGroupMovement_Bryozoans - Feature_TaxonomicGroupMovement_Bivalves = 0",
+    "Feature_TaxonomicGroupMovement_Bryozoans - Feature_TaxonomicGroupMovement_Barnacles = 0",
+    "Feature_TaxonomicGroupMovement_Bryozoans - Feature_TaxonomicGroupMovement_Ascidians = 0",
+    "Feature_TaxonomicGroupMovement_Bryozoans - Feature_TaxonomicGroupMovement_Algae = 0",
+    "Feature_TaxonomicGroupMovement_Bivalves - Feature_TaxonomicGroupMovement_Barnacles = 0",
+    "Feature_TaxonomicGroupMovement_Bivalves - Feature_TaxonomicGroupMovement_Ascidians = 0",
+    "Feature_TaxonomicGroupMovement_Bivalves - Feature_TaxonomicGroupMovement_Algae = 0",
+    "Feature_TaxonomicGroupMovement_Barnacles - Feature_TaxonomicGroupMovement_Ascidians = 0",
+    "Feature_TaxonomicGroupMovement_Barnacles - Feature_TaxonomicGroupMovement_Algae = 0",
+    "Feature_TaxonomicGroupMovement_Ascidians - Feature_TaxonomicGroupMovement_Algae = 0"
+  )
+))
+
+contrasts_list <- mget(ls(pattern = "^contrast_+"))
+summary(contrasts_list)
+
+con_df <- map_df(contrasts_list, ~ broom::tidy(.x), .id = "names")
+
+#save
+write.csv(con_df, file = "./output/contrasts_FeatureTaxonomicGroup.csv")
+```
+
+
+## Adding Mod Year (timeline bias)
+```{r}
+
+# Year
+
+#model with duration as a continuous moderator
+# you cannot do "-1" --- this means getting the intercept out and you do not want to do this for a slope 
+rom.Year <- rma.mv(yi, V, mods = ~ Year, 
+                                              random = list(~ 1|Study,
+                                                            ~ 1|Study_Experiment,
+                                                            ~ 1|Study_Experiment_Duration,
+                                                            ~ 1|Effect_ID,
+                                                            ~ 1|Species,
+                                                            ~ 1|Phylogeny),
+                                            R = list(Phylogeny = cor),
+                              method="REML",
+                              data=meta,
+                              control = list(optimizer="optim"))
+
+
+forest(rom.Year)
+summary(rom.Year)
+
+sum <- summary(rom.Year)
+sum_I2 <- i2_ml(rom.Year)
+sum_R2 <- r2_ml(rom.Year)
+
+res.Year <- data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
+                          beta = as.numeric(sum$beta),
+                          percentage_increase_or_decrease_on_treatment = (exp(sum$beta)-1)*100,
+                          real.effect.value = exp(sum$beta),
+                          pval = sum$pval,
+                          ci.lb = sum$ci.lb,
+                          ci.ub = sum$ci.ub,
+                          I2_total = sum_I2[[1]],
+                          I2_study = sum_I2[[2]],
+                          I2_Study_Experiment = sum_I2[[3]],
+                          I2_Study_Experiment_Duration = sum_I2[[4]],
+                          I2_Effect_ID = sum_I2[[5]],
+                          I2_Species = sum_I2[[6]],
+                          I2_Phylogeny = sum_I2[[7]],
+                          R2_marginal_fixed = sum_R2[[1]]*100,
+                          R2_conditional_fixed_random = sum_R2[[2]]*100,
+                          Moderator_significance_stat = sum$QM,
+                          Moderator_significance_pval = sum$QMp,
+                          AIC = rom.Year$fit.stats$REML[3])
+
+res.Year_df <- bind_rows(res.Year)
+write.csv(res.Year_df, file = "./output/summ_Year.csv")
+
+
+#moatt et al one moderator example.. 
+forest(x=c(rom.Year$b),sei=c(rom.Year$se), ci.lb=c(rom.Year$ci.lb), ci.ub=c(rom.Year$ci.ub),xlab=NULL,psize=2,cex=1.4,slab=c("Int", "Year"),  alim=c(-3.5,3.5))
+
+```
+
+
+## Adding Mod ALL MODERATORS 
+
+```{r}
+rom.All <- rma.mv( yi, V, mods = ~ Feature_Status +
+                                   Feature_TaxonomicGroup +
+                                   Year,
+                                              random = list(~ 1|Study,
+                                                            ~ 1|Study_Experiment,
+                                                            ~ 1|Study_Experiment_Duration,
+                                                            ~ 1|Effect_ID,
+                                                            ~ 1|Species,
+                                                            ~ 1|Phylogeny),
+                                        R = list(Phylogeny = cor),
+                          method = "REML",
+                          data = meta,
+                          control = list(optimizer="optim"))
+
+forest(rom.All)
+sum <- summary(rom.All)
+sum_I2 <- i2_ml(rom.All)
+sum_R2 <- r2_ml(rom.All)
+
+
+res.All <- data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
+                          beta = as.numeric(sum$beta),
+                          percentage_increase_or_decrease_on_treatment = (exp(sum$beta)-1)*100,
+                          real.effect.value = exp(sum$beta),
+                          pval = sum$pval,
+                          ci.lb = sum$ci.lb,
+                          ci.ub = sum$ci.ub,
+                          I2_total = sum_I2[[1]],
+                          I2_study = sum_I2[[2]],
+                          I2_Study_Experiment = sum_I2[[3]],
+                          I2_Study_Experiment_Duration = sum_I2[[4]],
+                          I2_Effect_ID = sum_I2[[5]],
+                          I2_Species = sum_I2[[6]],
+                          I2_Phylogeny = sum_I2[[7]],
+                          R2_marginal_fixed = sum_R2[[1]]*100,
+                          R2_conditional_fixed_random = sum_R2[[2]]*100,
+                          Moderator_significance_stat = sum$QM,
+                          Moderator_significance_pval = sum$QMp,
+                          AIC = rom.All$fit.stats$REML[3])
+
+res.All_df <- bind_rows(res.All)
+write.csv(res.All_df, file = "./output/summ_All.csv")
+```
+
+
+##Model comparison
+
+```{r}
+
+# https://stat.ethz.ch/pipermail/r-sig-mixed-models/2014q3/022608.html 
+# Viechtbauer, W. (2007). Accounting for heterogeneity via random-effects
+# > models and moderator analyses in meta-analysis. Zeitschrift für
+# > Psychologie / Journal of Psychology, 215(2), 104-121.
+#https://stat.ethz.ch/pipermail/r-help/2011-August/285943.html 
+#
+# explanation of tests of factors: 
+# http://www.metafor-project.org/doku.php/tips:testing_factors_lincoms
+
+summary(rom.All)
+
+# 
+summary(rom.TGS)
+anova(rom.All, btt = 2:13)
+#-> becomes significant
+
+#
+summary(rom.Year)
+anova(rom.All, btt = 14)
+#-> remains non-significant
+
+
+```
+
+
+## Publication bias
+
+This is important for testing whether only significant results were published.If this s the case, the results can be skewed in favour of significnat results and create false positives or negatvies - ie you're not getting the full picture. This can be tested visaully using a Funnel plot and then quantitatively using a trim and fill method. Both of the methods assume independence between effect  sizes. If this is not the case, then the residuals from the full model can be used. 
+
+Funnel plot shows the effect size on the x axis and a measure of precision of the observed effect size on the y axis. 
+
+funnel() has std error on y by default. 
+
+Only significant moderators included.
+
+###Funnel Plots
+```{r}
+
+funnel(rom.simple, yaxis = "sei", level = c(90, 95, 99), shade = c("white", 
+    "gray55", "gray75"), refline = 0, legend = TRUE)
+#saved by exporting
+
+jpeg("./output/funnel_simple.jpg",
+     width = 600,
+     height = 600)
+par(cex = 1.4)
+
+funnel(
+  rom.simple,
+  yaxis = "sei",
+  level = c(90, 95, 99),
+  shade = c("white",
+            "gray55", "gray75"),
+  refline = 0,
+  legend = TRUE
+)
+dev.off()
+
+```
+
+### Eggers Regression (significance of publication bias)
+
+```{r}
+
+### Eggers regression to test significance of publication bias (no intercept)
+# testing whether any asymmetries in the funnel plots are significant
+
+egger_reg_simple <- rma.mv (yi, V, mods = ~sqrt(vi), 
+                                              random = list(~ 1|Study,
+                                                            ~ 1|Study_Experiment,
+                                                            ~ 1|Study_Experiment_Duration,
+                                                            ~ 1|Effect_ID,
+                                                            ~ 1|Species,
+                                                            ~ 1|Phylogeny),
+                                                 R = list(Phylogeny = cor),
+                                   method="REML",
+                                   data=meta,
+                                   control = list(optimizer="optim"))
+
+summary(egger_reg_simple)
+
+
+# Model Results:
+# 
+#           estimate      se     zval    pval    ci.lb   ci.ub    
+# intrcpt     0.1897  0.4483   0.4231  0.6722  -0.6889  1.0683    
+# sqrt(vi)   -0.3777  0.4915  -0.7683  0.4423  -1.3411  0.5857    
+# 
+# ---
+# Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+```
+
+#Combined summary table
+Creating a  summary table of all the results summaries 
+```{r}
+#get list of summaries
+summaries <- mget(ls(pattern = "(res[^_])"))
+#[^_] = NOT underscore (ie avoiding underscores)
+summaries_df<-bind_rows(summaries, .id = "name")
+
+write.csv(summaries_df, file = "./output/invasives_results.csv")
+```
