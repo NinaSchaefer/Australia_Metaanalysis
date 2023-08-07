@@ -122,7 +122,7 @@ levels(meta$Orientation_Detail)
 ```
 
 
-## Creating Reference Columns
+## Creating reference columns
 
 Checking that there are sufficient identifier and reference columns for our random 
 effects:
@@ -132,10 +132,11 @@ effects:
 * We also add **experiment ID**, which shows which datapoints come from the same 
 experiment. We do this by grouping by study, location, and other reference columns
 that identify unique experiments within the same study. 
-* Duration is not included as we are incorporating repeated measures time points
-- and therefore is not a unique identifier for experiment ID. 
+* We added **Study_Experiment_Duration**, which shows which datapoints come from the same timepoint within one experiment within a study (if they were assessed multiple times). 
 
 These are mostly important for the random effects and independence components of the analysis.
+
+*  We created **Exp_ID**, which shows which datapoints come from the same timepoint within one experiment within a study for each species to calculate a corrected value for N to account for multiple controls for one treatment or multiple treatments per control, whenever present.
 
 ```{r}
 # create column with unique data points.. row names essentially
@@ -208,26 +209,54 @@ table(meta$TaxonomicGroup)
 ```
 
 
-##Dealing with ZEROS
+##Dealing with zeros
 
 The method wer're using for ESCALC - the ratio or means, cannot handle zeros in the denominator/numerator as this affects the results (not sure if they're 
 skipped or create NANs).
 
-It is preffered to keep the data - rather than just remove the zeros - as the means or SDs of controls and treatments that contain zeros, make up XX of the data.
+Zeros are replaced with values slightly smaller with the lowest mean and SDs for both control and treatment.
+This is done separately for density and percentage cover due to the different distributions.
 
+*Values for controls and treatments are the same due to some experiments having a crossed design (assessing multiple features) and treatments for one feature are used as controls in another feature*
 
 ```{r}
-#first lets see how many zeros there are:
-meta_zeros <- meta %>% 
-        filter(MeanControl==0.0 | MeanTreatment==0.0 | SDControl==0.0 | SDTreatment ==0.0)
-# XX rows with zeros in means or SDs
+#Density data
+meta_dens <- meta %>%
+  filter(Parameter =="Density")
 
-#Adding 0.5 to everything!
-meta_05 <- meta %>% 
-        mutate_at(vars(c("SDControl", "SDTreatment", "MeanControl", "MeanTreatment")),
-                  ~.+0.5)
+#get lowest mean and lowest SDs
+min(meta_dens[,7][which(meta_dens[,7]>0)]) #control
+min(meta_dens[,11][which(meta_dens[,11]>0)]) #treatment
+#-> 0.125 smallest value -> use 0.120 to replace zeros
+min(meta_dens[,10][which(meta_dens[,10]>0)]) #control
+min(meta_dens[,14][which(meta_dens[,14]>0)]) #treatment
+#-> 0.3535534 smallest value -> use 0.30 to replace zeros
 
-meta <- meta_05
+#add value slightly smaller than lowest mean and sd where there's a zero
+meta_dens$MeanTreatment[meta_dens$MeanTreatment == 0] <- 0.120 
+meta_dens$MeanControl[meta_dens$MeanControl == 0] <- 0.120 
+meta_dens$SDTreatment[meta_dens$SDTreatment == 0] <- 0.30 
+meta_dens$SDControl[meta_dens$SDControl == 0] <- 0.30 
+
+meta_abund <- meta %>%
+  filter(Parameter =="Abundance")
+
+#get lowest mean and lowest SDs
+min(meta_abund[,7][which(meta_abund[,7]>0)]) #control
+min(meta_abund[,11][which(meta_abund[,11]>0)]) #treatment
+#-> 0.08264463 smallest value -> use 0.075 to replace zeros
+min(meta_abund[,10][which(meta_abund[,10]>0)]) #control
+min(meta_abund[,14][which(meta_abund[,14]>0)]) #treatment
+#-> 0.184799 smallest value -> use 0.180 to replace zeros
+
+#add value slightly smaller than lowest mean and sd where there's a zero
+meta_abund$MeanTreatment[meta_abund$MeanTreatment == 0] <- 0.075 
+meta_abund$MeanControl[meta_abund$MeanControl == 0] <- 0.075 
+meta_abund$SDTreatment[meta_abund$SDTreatment == 0] <- 0.180 
+meta_abund$SDControl[meta_abund$SDControl == 0] <- 0.180 
+
+#putting meta back together
+meta <- rbind(meta_dens, meta_abund)
 ```
 
 
@@ -670,6 +699,73 @@ simp_cat
 ggsave(simp_cat, file = "./output/simp_cat.tiff", dpi = plot_dpi)
 ```
 
+
+## Adding Mod Parameter (test whether parameter (abundance or percentage cover) has an influence)
+```{r, results='hide', fig.show='hide'}
+#using reduced dataset where each level comprises of at least 3 experiments
+rom.Parameter <- rma.mv(yi, V, mods = ~ Parameter - 1,
+                                              random = list(~ 1|Study,
+                                                            ~ 1|Study_Experiment,
+                                                            ~ 1|Study_Experiment_Duration,
+                                                            ~ 1|Effect_ID,
+                                                            ~ 1|Species,
+                                                            ~ 1|Phylogeny),
+                                                           R = list(Phylogeny = cor),
+                                                           method = "REML",
+                                                           data = meta,
+                                                           control = list(optimizer ="optim"))
+
+
+sum <- summary(rom.Parameter)
+sum_I2 <- i2_ml(rom.Parameter)
+sum_R2 <- r2_ml(rom.Parameter)
+
+res.Parameter <-data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
+                          beta = as.numeric(sum$beta),
+                          percentage_increase_or_decrease_on_Treatment = (exp(sum$beta)-1)*100,
+                          real.effect.value = exp(sum$beta),
+                          pval = sum$pval,
+                          ci.lb = sum$ci.lb,
+                          ci.ub = sum$ci.ub,
+                          I2_total = sum_I2[[1]],
+                          I2_study = sum_I2[[2]],
+                          I2_Study_Experiment = sum_I2[[3]],
+                          I2_Study_Experiment_Duration = sum_I2[[4]],
+                          I2_Effect_ID = sum_I2[[5]],
+                          I2_Species = sum_I2[[6]],
+                          I2_Phylogeny = sum_I2[[7]],
+                          R2_marginal_fixed = sum_R2[[1]]*100,
+                          R2_conditional_fixed_random = sum_R2[[2]]*100,
+                          Moderator_significance_stat = sum$QM,
+                          Moderator_significance_pval = sum$QMp,
+                          AIC = rom.Parameter$fit.stats$REML[3])
+
+
+res_Parameter_df <- bind_rows(res.Parameter)
+write.csv(res_Parameter_df, file = "./output/summ_Parameter.csv")
+
+
+Parameter_orch <-
+  orchard_plot(rom.FeatureStatus, mod = "Parameter", xlab = "Ratio of means", group="Study_Experiment", data=meta) + theme(axis.text.y = element_text(angle = 0, hjust = 1))
+Parameter_orch
+
+ggsave(
+ Parameter_orch,
+  file = "./output/Parameter_orch.tiff",
+  dpi = plot_dpi,
+  width = 10,
+  height = 8
+)
+
+
+Parameter_cat <-
+  caterpillars(rom.FeatureStatus, mod = "Parameter", xlab = "Ratio of means", group="Study_Experiment", data=meta)
+FeatureStatus_cat
+ggsave(FeatureStatus_cat, file = "./output/Parameter_cat.tiff", dpi = plot_dpi)
+
+```
+
+
 ## Adding Mod FEATURE: STATUS
 ### test whether N or NI is different from 0
 ```{r, results='hide', fig.show='hide'}
@@ -734,6 +830,8 @@ FeatureStatus_cat <-
 FeatureStatus_cat
 ggsave(FeatureStatus_cat, file = "./output/FeatureStatus_cat.tiff", dpi = plot_dpi)
 
+#test whether NI and N vary from one another within  each feature
+
 table(meta_reduced$Feature_Status)
 contrast_Status <- summary(glht(
   rom.FeatureStatus,
@@ -754,7 +852,7 @@ write.csv(con_df, file = "./output/contrasts_FeatureStatus.csv")
 
 ```
 
-### test for differences in variance between N and NI
+### test for differences in variance between N and NI (@Shinichi: I had this run for over a day and it still wasn't giving me an output, which is why I hashed it out. the usual optimizer optim with nelder mead method did not work. I tried BFGS as well which also didn't work. Didn't bother with the others but tried bobyqa instead, but that was running for a day without an output. Do you have any suggestions
 ```{r}
 # rom.FeatureStatus.het <- rma.mv(yi, V, mods = ~ Feature_Status,
 #                                               random = list(~ 1|Study,
@@ -979,7 +1077,7 @@ forest(x=c(rom.Year$b),sei=c(rom.Year$se), ci.lb=c(rom.Year$ci.lb), ci.ub=c(rom.
 ```
 
 
-## Adding Mod ALL MODERATORS 
+## Adding Mod ALL MODERATORS (left out Parameter here as not really part of the question)
 
 ```{r}
 rom.All <- rma.mv( yi, V, mods = ~ Feature_Status +
@@ -1027,7 +1125,13 @@ write.csv(res.All_df, file = "./output/summ_All.csv")
 ```
 
 
-##Model comparison
+#######################################################################################################
+ANYTHING BELOW TO BE UPDATED ONCE EVERYTHING ABOVE IS FINALISED
+#######################################################################################################
+
+
+##Model comparison (will do once the rest is all ok)
+
 
 ```{r}
 
@@ -1043,7 +1147,12 @@ write.csv(res.All_df, file = "./output/summ_All.csv")
 summary(rom.All)
 
 # 
-summary(rom.TGS)
+summary(rom.FeatureStatus)
+anova(rom.All, btt = 2:13)
+#-> becomes significant
+
+# 
+summary(rom.FeatureTaxonomicGroup)
 anova(rom.All, btt = 2:13)
 #-> becomes significant
 
