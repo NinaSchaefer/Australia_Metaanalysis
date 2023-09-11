@@ -49,6 +49,7 @@ library(kableExtra)
 library(downloadthis)
 library(tidyverse)  
 library(patchwork)
+library(here)
 ```
 
 
@@ -386,11 +387,56 @@ and we will take the log of this ratio - centered around zero.
 #           data = meta
 #         )
 
-lnRR <- function(CMean, CSD, CN, EMean, ESD, EN){
-yi<-log( EMean / CMean)
-vi <- CSD^2 / (CN * CMean^2) + ESD^2 / (EN * EMean^2)
-print(data.frame(yi,vi))
+# TODO 
+
+lnRR <-  function(CMean, CSD, CN, EMean, ESD, EN){
+   # transform proportion mean value
+      asin_trans <- function(proportion) {
+        trans <- asin(sqrt(proportion))
+        trans
+      }
+
+      E_SD <- (ESD/100)^2 / (4 * (EMean/100) * (1 - (EMean/100)))
+      C_SD <- (CSD/100)^2 / (4 * (CMean/100) * (1 - (CMean/100)))
+
+      E_proportion <- asin_trans(EMean/100)
+      C_proportion <- asin_trans(CMean/100)
+
+      # calculate lnRR and lnRR variance
+      yi <- log(E_proportion / C_proportion)
+      vi <- (E_SD)^2 * (1 / (E_proportion^2 * EN)) +
+        (C_SD)^2 * (1 / (C_proportion^2 * CN))
+      
+      print(data.frame(yi,vi))
+      
 }
+
+# lnRR <- function(CMean, CSD, CN, EMean, ESD, EN){
+# yi<-log( EMean / CMean)
+# vi <- CSD^2 / (CN * CMean^2) + ESD^2 / (EN * EMean^2)
+# print(data.frame(yi,vi))
+# }
+
+# meta.lnRR <- lnRR(
+#   CMean = meta$MeanControl,
+#   CSD = meta$SDControl,
+#   CN = meta$reducedReplicatesControl,
+#   EMean = meta$MeanTreatment,
+#   ESD = meta$SDTreatment,
+#   EN = meta$reducedReplicatesTreatment)
+# 
+# meta<- cbind(meta, meta.lnRR)
+# 
+# meta_reduced.lnRR <- lnRR(
+#   CMean = meta_reduced$MeanControl,
+#   CSD = meta_reduced$SDControl,
+#   CN = meta_reduced$reducedReplicatesControl,
+#   EMean = meta_reduced$MeanTreatment,
+#   ESD = meta_reduced$SDTreatment,
+#   EN = meta_reduced$reducedReplicatesTreatment)
+# 
+# meta_reduced<- cbind(meta_reduced, meta_reduced.lnRR)
+
 
 meta.lnRR <- lnRR(
   CMean = meta$MeanControl,
@@ -411,7 +457,6 @@ meta_reduced.lnRR <- lnRR(
   EN = meta_reduced$reducedReplicatesTreatment)
 
 meta_reduced<- cbind(meta_reduced, meta_reduced.lnRR)
-
 
 ```
 
@@ -647,6 +692,8 @@ plot_dpi <- 300
 ## Simple model
 
 ```{r}
+
+# TODO - talk to @Nina about simplying the model and why
 rom.simple <- rma.mv(yi, V, random = list(~ 1|Study,
                                           ~ 1|Study_Experiment,
                                           ~ 1|Study_Experiment_Duration,
@@ -869,7 +916,7 @@ rom.FeatureStatus.het <- rma.mv(yi, V, mods = ~ Feature_Status,
                                                            sparse = TRUE, # this speeds things up
                                                            test = "t",
                                                            data = meta,
-                                                           control=list(optimizer="BFGS")) #added as error occured with optim with “Nelder-Mead”, “BFGS”,  did not work. have not tried “CG”, “L-BFGS-B”, “SANN”, “Brent”)
+                                                           control=list(optimizer="L-BFGS-B")) #added as error occured with optim with “Nelder-Mead”, “BFGS”,  did not work. have not tried “CG”, “L-BFGS-B”, “SANN”, “Brent”)
 
 rom.FeatureStatus.hom <- rma.mv(yi, V, mods = ~ Feature_Status,
                                               random = list(#~ 1|Study, # these have 0 variances no need to be in
@@ -885,12 +932,19 @@ rom.FeatureStatus.hom <- rma.mv(yi, V, mods = ~ Feature_Status,
                                                            sparse = TRUE,
                                                            test = "t",
                                                            data = meta,
-                                                           control=list(optimizer="BFGS")) 
+                                                           control=list(optimizer="L-BFGS-B")) 
 
+# saving so no need to run later on
+saveRDS(rom.FeatureStatus.hom, here("data", "rom.FeatureStatus.hom.RDS"))
+saveRDS(rom.FeatureStatus.het, here("data", "rom.FeatureStatus.het.RDS"))
+
+rom.FeatureStatus.hom <- readRDS(here("data", "rom.FeatureStatus.hom.RDS"))
+rom.FeatureStatus.het <- readRDS(here("data", "rom.FeatureStatus.het.RDS"))
+  
 summary(rom.FeatureStatus.hom)
 summary(rom.FeatureStatus.het)
 
-
+# het model is much better
 anova(rom.FeatureStatus.het, rom.FeatureStatus.hom)
 
 
