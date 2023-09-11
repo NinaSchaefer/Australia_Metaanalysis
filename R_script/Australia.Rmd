@@ -48,6 +48,7 @@ library(multcomp)
 library(kableExtra)
 library(downloadthis)
 library(tidyverse)  
+library(patchwork)
 ```
 
 
@@ -854,29 +855,58 @@ write.csv(con_df, file = "./output/contrasts_FeatureStatus.csv")
 
 ### test for differences in variance between N and NI (@Shinichi: I had this run for over a day and it still wasn't giving me an output, which is why I hashed it out. the usual optimizer optim with nelder mead method did not work. I tried BFGS as well which also didn't work. Didn't bother with the others but tried bobyqa instead, but that was running for a day without an output. Do you have any suggestions
 ```{r}
-# rom.FeatureStatus.het <- rma.mv(yi, V, mods = ~ Feature_Status,
-#                                               random = list(~ 1|Study,
-#                                                             ~ 1|Study_Experiment,
-#                                                             ~ 1|Study_Experiment_Duration,
-#                                                             ~ 1 + Feature_Status|Effect_ID,
-#                                                             ~ 1|Species,
-#                                                             ~ 1|Phylogeny),
-#                                                            R = list(Phylogeny = cor),
-#                                                            rho = 0,
-#                                                            struc = "HCS",
-#                                                            method = "REML",
-#                                                            test = "t",
-#                                                            data = meta,
-#                                                            control = list(optimizer ="bobyqa")) #added as error occured with optim with “Nelder-Mead”, “BFGS”,  did not work. have not tried “CG”, “L-BFGS-B”, “SANN”, “Brent”)
-# 
-# sum.het <- summary(rom.FeatureStatus.het)
-# sum.het
-# 
-# #estimate of tau 2.2 almost twice as big as tau 2.1
-# 
-# 
-# library(flextable)
-# flextable::flextable(mod_results(rom.FeatureStatus.het, group = "Study_Experiment", mod = "FeatureStatus", data=meta)$mod_table)
+rom.FeatureStatus.het <- rma.mv(yi, V, mods = ~ Feature_Status,
+                                              random = list(#~ 1|Study, # these have 0 variances no need to be in
+                                                           # ~ 1|Study_Experiment,
+                                                            #~ 1|Study_Experiment_Duration,
+                                                            ~ 1 + Feature_Status|Effect_ID,
+                                                            ~ 1|Species,
+                                                            ~ 1|Phylogeny),
+                                                           R = list(Phylogeny = cor),
+                                                           #rho = 0,
+                                                           struc = "DIAG",
+                                                           method = "REML",
+                                                           sparse = TRUE, # this speeds things up
+                                                           test = "t",
+                                                           data = meta,
+                                                           control=list(optimizer="BFGS")) #added as error occured with optim with “Nelder-Mead”, “BFGS”,  did not work. have not tried “CG”, “L-BFGS-B”, “SANN”, “Brent”)
+
+rom.FeatureStatus.hom <- rma.mv(yi, V, mods = ~ Feature_Status,
+                                              random = list(#~ 1|Study, # these have 0 variances no need to be in
+                                                           # ~ 1|Study_Experiment,
+                                                            #~ 1|Study_Experiment_Duration,
+                                                            ~ 1|Effect_ID,
+                                                            ~ 1|Species,
+                                                            ~ 1|Phylogeny),
+                                                           R = list(Phylogeny = cor),
+                                                           #rho = 0,
+                                                           #struc = "DIAG",
+                                                           method = "REML",
+                                                           sparse = TRUE,
+                                                           test = "t",
+                                                           data = meta,
+                                                           control=list(optimizer="BFGS")) 
+
+summary(rom.FeatureStatus.hom)
+summary(rom.FeatureStatus.het)
+
+
+anova(rom.FeatureStatus.het, rom.FeatureStatus.hom)
+
+
+p1 <- orchard_plot(rom.FeatureStatus.hom, mod = "Feature_Status", xlab = "Ratio of means (homoscadasticiy)", group="Study_Experiment") + 
+  theme(axis.text.y = element_text(angle = 0, hjust = 1))
+
+p2 <- orchard_plot(rom.FeatureStatus.het, mod = "Feature_Status", xlab = "Ratio of means (heteroscadasticiy)", group="Study_Experiment") + 
+                     theme(axis.text.y = element_text(angle = 0, hjust = 1))
+
+p1 + p2
+
+#estimate of tau 2.2 almost twice as big as tau 2.1
+
+
+library(flextable)
+flextable::flextable(mod_results(rom.FeatureStatus.het, group = "Study_Experiment", mod = "FeatureStatus", data=meta)$mod_table)
 
 ```
 
