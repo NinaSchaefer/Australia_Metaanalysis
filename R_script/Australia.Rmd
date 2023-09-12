@@ -223,42 +223,43 @@ This is done separately for density and percentage cover due to the different di
 
 ```{r}
 #Density data
-meta_dens <- meta %>%
-  filter(Parameter =="Density")
-
-#get lowest mean and lowest SDs
-min(meta_dens[,7][which(meta_dens[,7]>0)]) #control
-min(meta_dens[,11][which(meta_dens[,11]>0)]) #treatment
-#-> 0.125 smallest value -> use 0.120 to replace zeros
-min(meta_dens[,10][which(meta_dens[,10]>0)]) #control
-min(meta_dens[,14][which(meta_dens[,14]>0)]) #treatment
-#-> 0.3535534 smallest value -> use 0.30 to replace zeros
-
-#add value slightly smaller than lowest mean and sd where there's a zero
-meta_dens$MeanTreatment[meta_dens$MeanTreatment == 0] <- 0.120 
-meta_dens$MeanControl[meta_dens$MeanControl == 0] <- 0.120 
-meta_dens$SDTreatment[meta_dens$SDTreatment == 0] <- 0.30 
-meta_dens$SDControl[meta_dens$SDControl == 0] <- 0.30 
-
 meta_abund <- meta %>%
   filter(Parameter =="Abundance")
 
 #get lowest mean and lowest SDs
+
 min(meta_abund[,7][which(meta_abund[,7]>0)]) #control
 min(meta_abund[,11][which(meta_abund[,11]>0)]) #treatment
-#-> 0.08264463 smallest value -> use 0.075 to replace zeros
+#-> 0.125 smallest value -> use 0.120 to replace zeros
 min(meta_abund[,10][which(meta_abund[,10]>0)]) #control
 min(meta_abund[,14][which(meta_abund[,14]>0)]) #treatment
+#-> 0.3535534 smallest value -> use 0.30 to replace zeros
+
+#add value slightly smaller than lowest mean and sd where there's a zero
+meta_abund$MeanTreatment[meta_abund$MeanTreatment == 0] <- 0.120 
+meta_abund$MeanControl[meta_abund$MeanControl == 0] <- 0.120 
+meta_abund$SDTreatment[meta_abund$SDTreatment == 0] <- 0.30 
+meta_abund$SDControl[meta_abund$SDControl == 0] <- 0.30 
+
+meta_cov <- meta %>%
+  filter(Parameter =="PercentageCover")
+
+#get lowest mean and lowest SDs
+min(meta_cov[,7][which(meta_cov[,7]>0)]) #control
+min(meta_cov[,11][which(meta_cov[,11]>0)]) #treatment
+#-> 0.08264463 smallest value -> use 0.075 to replace zeros
+min(meta_cov[,10][which(meta_cov[,10]>0)]) #control
+min(meta_cov[,14][which(meta_cov[,14]>0)]) #treatment
 #-> 0.184799 smallest value -> use 0.180 to replace zeros
 
 #add value slightly smaller than lowest mean and sd where there's a zero
-meta_abund$MeanTreatment[meta_abund$MeanTreatment == 0] <- 0.075 
-meta_abund$MeanControl[meta_abund$MeanControl == 0] <- 0.075 
-meta_abund$SDTreatment[meta_abund$SDTreatment == 0] <- 0.180 
-meta_abund$SDControl[meta_abund$SDControl == 0] <- 0.180 
+meta_cov$MeanTreatment[meta_cov$MeanTreatment == 0] <- 0.075 
+meta_cov$MeanControl[meta_cov$MeanControl == 0] <- 0.075 
+meta_cov$SDTreatment[meta_cov$SDTreatment == 0] <- 0.180 
+meta_cov$SDControl[meta_cov$SDControl == 0] <- 0.180 
 
 #putting meta back together
-meta <- rbind(meta_dens, meta_abund)
+meta <- rbind(meta_abund, meta_cov)
 ```
 
 
@@ -794,7 +795,7 @@ write.csv(res_Parameter_df, file = "./output/summ_Parameter.csv")
 
 
 Parameter_orch <-
-  orchard_plot(rom.FeatureStatus, mod = "Parameter", xlab = "Ratio of means", group="Study_Experiment", data=meta) + theme(axis.text.y = element_text(angle = 0, hjust = 1))
+  orchard_plot(rom.Parameter, mod = "Parameter", xlab = "Ratio of means", group="Study_Experiment", data=meta) + theme(axis.text.y = element_text(angle = 0, hjust = 1))
 Parameter_orch
 
 ggsave(
@@ -807,7 +808,7 @@ ggsave(
 
 
 Parameter_cat <-
-  caterpillars(rom.FeatureStatus, mod = "Parameter", xlab = "Ratio of means", group="Study_Experiment", data=meta)
+  caterpillars(rom.Parameter, mod = "Parameter", xlab = "Ratio of means", group="Study_Experiment", data=meta)
 FeatureStatus_cat
 ggsave(FeatureStatus_cat, file = "./output/Parameter_cat.tiff", dpi = plot_dpi)
 
