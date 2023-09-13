@@ -375,30 +375,20 @@ and we will take the log of this ratio - centered around zero.
 
 ```{r, results='hide'}
 
-# Escalc funtion:
-# meta <-  escalc(
-#           m1i = meta$MeanTreatment,
-#           sd1i = meta$SDTreatment,
-#           n1i = meta$ReplicatesTreatment,
-#           m2i = meta$MeanControl,
-#           sd2i = meta$SDControl,
-#           n2i = meta$reducedReplicatesControl,
-#           measure = "ROM",
-#           append = TRUE,
-#           data = meta
-#         )
-
-# TODO 
-
-lnRR <-  function(CMean, CSD, CN, EMean, ESD, EN){
-   # transform proportion mean value
+# conditional function to get lnRR
+lnRR <-  function(CMean, CSD, CN, EMean, ESD, EN, Parameter){
+   
+  if(Parameter == "PercentageCover"){
+  
+  
+  # transform proportion mean value
       asin_trans <- function(proportion) {
         trans <- asin(sqrt(proportion))
         trans
       }
 
-      E_SD <- (ESD/100)^2 / (4 * (EMean/100) * (1 - (EMean/100)))
-      C_SD <- (CSD/100)^2 / (4 * (CMean/100) * (1 - (CMean/100)))
+      E_SD <- sqrt(((ESD)^2/1000) / (4 * (EMean/100) * (1 - (EMean/100))))
+      C_SD <- sqrt(((CSD)^2/1000) / (4 * (CMean/100) * (1 - (CMean/100))))
 
       E_proportion <- asin_trans(EMean/100)
       C_proportion <- asin_trans(CMean/100)
@@ -407,57 +397,54 @@ lnRR <-  function(CMean, CSD, CN, EMean, ESD, EN){
       yi <- log(E_proportion / C_proportion)
       vi <- (E_SD)^2 * (1 / (E_proportion^2 * EN)) +
         (C_SD)^2 * (1 / (C_proportion^2 * CN))
+  }else {
+    
+    yi<-log( EMean / CMean)
+    vi <- CSD^2 / (CN * CMean^2) + ESD^2 / (EN * EMean^2)
+  }
       
-      print(data.frame(yi,vi))
+  invisible(data.frame(yi,vi))
       
 }
 
-# lnRR <- function(CMean, CSD, CN, EMean, ESD, EN){
-# yi<-log( EMean / CMean)
-# vi <- CSD^2 / (CN * CMean^2) + ESD^2 / (EN * EMean^2)
-# print(data.frame(yi,vi))
-# }
-
-# meta.lnRR <- lnRR(
-#   CMean = meta$MeanControl,
-#   CSD = meta$SDControl,
-#   CN = meta$reducedReplicatesControl,
-#   EMean = meta$MeanTreatment,
-#   ESD = meta$SDTreatment,
-#   EN = meta$reducedReplicatesTreatment)
-# 
-# meta<- cbind(meta, meta.lnRR)
-# 
-# meta_reduced.lnRR <- lnRR(
-#   CMean = meta_reduced$MeanControl,
-#   CSD = meta_reduced$SDControl,
-#   CN = meta_reduced$reducedReplicatesControl,
-#   EMean = meta_reduced$MeanTreatment,
-#   ESD = meta_reduced$SDTreatment,
-#   EN = meta_reduced$reducedReplicatesTreatment)
-# 
-# meta_reduced<- cbind(meta_reduced, meta_reduced.lnRR)
-
-
-meta.lnRR <- lnRR(
+meta.list <- list(
   CMean = meta$MeanControl,
   CSD = meta$SDControl,
   CN = meta$reducedReplicatesControl,
   EMean = meta$MeanTreatment,
   ESD = meta$SDTreatment,
-  EN = meta$reducedReplicatesTreatment)
+  EN = meta$reducedReplicatesTreatment,
+  Parameter = meta$Parameter)
+
+# applying 
+meta.lnRR <-pmap_df(meta.list, lnRR)
 
 meta<- cbind(meta, meta.lnRR)
 
-meta_reduced.lnRR <- lnRR(
+meta_reduced.list <- list(
   CMean = meta_reduced$MeanControl,
   CSD = meta_reduced$SDControl,
   CN = meta_reduced$reducedReplicatesControl,
   EMean = meta_reduced$MeanTreatment,
   ESD = meta_reduced$SDTreatment,
-  EN = meta_reduced$reducedReplicatesTreatment)
+  EN = meta_reduced$reducedReplicatesTreatment,
+  Parameter = meta_reduced$Parameter)
+
+meta_reduced.lnRR <-pmap_df(meta_reduced.list, lnRR)
 
 meta_reduced<- cbind(meta_reduced, meta_reduced.lnRR)
+
+# # cehcking data
+# 
+# median(meta$SDTreatment/meta$MeanTreatment)
+# median(meta$SDTreatment[meta$Parameter == "PercentageCover"] / 
+#        meta$MeanTreatment[meta$Parameter == "PercentageCover"])
+# median(meta$SDTreatment[meta$Parameter == "Abundance"] / 
+#        meta$MeanTreatment[meta$Parameter == "Abundance"])
+# 
+# median(meta$vi[meta$Parameter == "Abundance"])
+# median(meta$vi[meta$Parameter == "PercentageCover"])
+
 
 ```
 
@@ -695,6 +682,7 @@ plot_dpi <- 300
 ```{r}
 
 # TODO - talk to @Nina about simplying the model and why
+# not zero but Study_Experiment and Study_Experiment_Duration (very small effects) - I would remove it
 rom.simple <- rma.mv(yi, V, random = list(~ 1|Study,
                                           ~ 1|Study_Experiment,
                                           ~ 1|Study_Experiment_Duration,
@@ -704,6 +692,7 @@ rom.simple <- rma.mv(yi, V, random = list(~ 1|Study,
                                           R = list(Phylogeny = cor),
                             method = "REML",
                             data = meta,
+                            sparse = TRUE, # makes it quicker to run
                             control = list(optimizer="optim"))
 
 forest(rom.simple)
@@ -904,8 +893,8 @@ write.csv(con_df, file = "./output/contrasts_FeatureStatus.csv")
 ### test for differences in variance between N and NI (@Shinichi: I had this run for over a day and it still wasn't giving me an output, which is why I hashed it out. the usual optimizer optim with nelder mead method did not work. I tried BFGS as well which also didn't work. Didn't bother with the others but tried bobyqa instead, but that was running for a day without an output. Do you have any suggestions
 ```{r}
 rom.FeatureStatus.het <- rma.mv(yi, V, mods = ~ Feature_Status,
-                                              random = list(#~ 1|Study, # these have 0 variances no need to be in
-                                                           # ~ 1|Study_Experiment,
+                                              random = list(#~ 1|Study, 
+                                                            #~ 1|Study_Experiment, # with these things - the model may not run
                                                             #~ 1|Study_Experiment_Duration,
                                                             ~ 1 + Feature_Status|Effect_ID,
                                                             ~ 1|Species,
@@ -920,8 +909,8 @@ rom.FeatureStatus.het <- rma.mv(yi, V, mods = ~ Feature_Status,
                                                            control=list(optimizer="L-BFGS-B")) #added as error occured with optim with “Nelder-Mead”, “BFGS”,  did not work. have not tried “CG”, “L-BFGS-B”, “SANN”, “Brent”)
 
 rom.FeatureStatus.hom <- rma.mv(yi, V, mods = ~ Feature_Status,
-                                              random = list(#~ 1|Study, # these have 0 variances no need to be in
-                                                           # ~ 1|Study_Experiment,
+                                              random = list(#~ 1|Study, 
+                                                            #~ 1|Study_Experiment,
                                                             #~ 1|Study_Experiment_Duration,
                                                             ~ 1|Effect_ID,
                                                             ~ 1|Species,
@@ -959,9 +948,34 @@ p1 + p2
 
 #estimate of tau 2.2 almost twice as big as tau 2.1
 
+# 
+# library(flextable)
+# flextable::flextable(mod_results(rom.FeatureStatus.het, group = "Study_Experiment", mod = "FeatureStatus", data=meta)$mod_table)
 
-library(flextable)
-flextable::flextable(mod_results(rom.FeatureStatus.het, group = "Study_Experiment", mod = "FeatureStatus", data=meta)$mod_table)
+
+#
+# 
+# rom.FeatureStatus.het2 <- rma.mv(yi, V, mods = ~ Feature_Status,
+#                                               random = list(~ 1 + Feature_Status|Study, 
+#                                                             #~ 1|Study_Experiment, # with these things - the model may not run
+#                                                             #~ 1|Study_Experiment_Duration,
+#                                                             ~ 1 + Feature_Status|Effect_ID,
+#                                                             ~ 1|Species,
+#                                                             ~ 1|Phylogeny),
+#                                                            R = list(Phylogeny = cor),
+#                                                            #rho = 0,
+#                                                            struc = "DIAG",
+#                                                            method = "REML",
+#                                                            sparse = TRUE, # this speeds things up
+#                                                            test = "t",
+#                                                            data = meta,
+#                                                            control=list(optimizer="BFGS")) 
+# 
+# summary(rom.FeatureStatus.het2)
+# 
+# orchard_plot(rom.FeatureStatus.het2, mod = "Feature_Status", xlab = "Ratio of means (heteroscadasticiy)", group="Study_Experiment") + 
+#                      theme(axis.text.y = element_text(angle = 0, hjust = 1))
+
 
 ```
 
