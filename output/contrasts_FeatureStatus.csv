@@ -1,4 +1,4 @@
 "","names","contrast","null.value","estimate","std.error","statistic","adj.p.value"
-"1","contrast_Status","Feature_StatusSubstrate_NI - Feature_StatusSubstrate_N",0,0.0288786986358557,0.13785307083829,0.209488975909229,0.993399475184809
-"2","contrast_Status","Feature_StatusOrientation_NI - Feature_StatusOrientation_N",0,0.0850130841098973,0.115348303026432,0.737012005199737,0.799709512718198
-"3","contrast_Status","Feature_StatusMovement_NI - Feature_StatusMovement_N",0,0.178420246817441,0.138458740128195,1.28861671464183,0.426908320072129
+"1","contrast_Status","Feature_StatusSubstrate_NI - Feature_StatusSubstrate_N",0,0.0860774582075017,0.122431851301497,0.703064254052074,0.806334252325952
+"2","contrast_Status","Feature_StatusOrientation_NI - Feature_StatusOrientation_N",0,0.12226688046624,0.114247002461816,1.07019771050102,0.555438037515971
+"3","contrast_Status","Feature_StatusMovement_NI - Feature_StatusMovement_N",0,-0.0891281731795529,0.12819336634698,-0.695263536010986,0.811145754130394

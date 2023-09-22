@@ -55,8 +55,9 @@ library(here)
 
 ##Read in and tidy data
 ```{r}
-meta<-read.csv("data/Dataset_Australia_new.csv",header=T, fileEncoding="latin1") #read in data
+meta<-read.csv("data/Dataset_Australia_new_adjusted.csv",header=T, fileEncoding="latin1") #read in data
 
+#adjusted dataset has orientations removed for vertical up and vertical down compariasons
 
 names(meta)
 str(meta)
@@ -114,13 +115,6 @@ levels(meta$TaxonomicGroup)
 levels(meta$TaxonomicGroup) <- c("Anthozoans","Ascidians", "Barnacles", "Bivalves", "Algae", "Bryozoans", "Algae", "Polychaetes", "Poriferans", "Algae")
 
 levels(meta$TaxonomicGroup)
-
-levels(meta$Orientation_Detail)
-#remove feature orientation_vertdown and orientation_vertup, as only upfacing is considered natural
-meta <- meta %>%
-        filter(Orientation_Detail=="Orientation_upvert" | Orientation_Detail=="Orientation_updown" |Orientation_Detail=="")
-meta<- meta %>% droplevels() #gets rid of parameters and groups not present anymore
-levels(meta$Orientation_Detail)
 ```
 
 
@@ -188,6 +182,36 @@ meta$Exp_ID <- as.factor(meta$Exp_ID)
 
 rm(Exp_ID) # leaving in for now, to check numbers
 
+```
+
+##How many studies, study locations, experiment for each Feature?
+```{r}
+
+meta$Feature_Study <-
+  paste(meta$Feature, meta$Study, sep = "_")
+meta$Feature_Study <-as.factor(meta$Feature_Study)
+
+meta$Feature_Study_Location <-
+  paste(meta$Feature, meta$Study_Location, sep = "_")
+meta$Feature_Study_Location <-as.factor(meta$Feature_Study_Location)
+
+meta$Feature_Study_Experiment_Duration <-
+  paste(meta$Feature, meta$Study_Experiment_Duration, sep = "_")
+meta$Feature_Study_Experiment_Duration <-as.factor(meta$Feature_Study_Experiment_Duration)
+
+meta$Feature_Species <-
+  paste(meta$Feature, meta$Species, sep = "_")
+meta$Feature_Species <-as.factor(meta$Feature_Species)
+
+meta$Feature_Species_Status <-
+  paste(meta$Feature_Species, meta$Status.AUS, sep = "_")
+meta$Feature_Species_Status <-as.factor(meta$Feature_Species_Status)
+
+levels(meta$Feature_Study)
+levels(meta$Feature_Study_Location)
+levels(meta$Feature_Study_Experiment_Duration)
+levels(meta$Feature_Species)
+levels(meta$Feature_Species_Status)
 ```
 
 
@@ -555,6 +579,11 @@ meta$Species <-
   sub("Martensia", "Martensia (genus in kingdom Archaeplastida)", meta$Species)
 meta$Species <-
   sub("Feldmannia", "Feldmannia (genus in subkingdom SAR)", meta$Species)
+meta$Species <-
+  sub("Hydroides elegans", "Hydroides", meta$Species)
+meta$Species <-
+  sub("Hydroides dirampha", "Hydroides", meta$Species)
+
 
 
 
@@ -622,6 +651,10 @@ meta_reduced$Species <-
   sub("Martensia", "Martensia (genus in kingdom Archaeplastida)", meta_reduced$Species)
 meta_reduced$Species <-
   sub("Feldmannia", "Feldmannia (genus in subkingdom SAR)", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Hydroides elegans", "Hydroides", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Hydroides dirampha", "Hydroides", meta_reduced$Species)
 
 b <- unique(meta_reduced$Species)
 b <- as.character(b)
@@ -681,8 +714,6 @@ plot_dpi <- 300
 
 ```{r}
 
-# TODO - talk to @Nina about simplying the model and why
-# not zero but Study_Experiment and Study_Experiment_Duration (very small effects) - I would remove it
 rom.simple <- rma.mv(yi, V, random = list(~ 1|Study,
                                           ~ 1|Study_Experiment,
                                           ~ 1|Study_Experiment_Duration,
@@ -737,20 +768,77 @@ simp_cat
 ggsave(simp_cat, file = "./output/simp_cat.tiff", dpi = plot_dpi)
 ```
 
+## Adjusted simple model
+Random factors Study_experiment, Study_Experiment_Duration have very small effects (I2 <0.25) and are removed.
+The simple model was rerun without these factors.
 
-## Adding Mod Parameter (test whether parameter (abundance or percentage cover) has an influence)
+```{r}
+
+rom.simple.adj <- rma.mv(yi, V, random = list(~ 1|Study,
+                                              ~ 1|Effect_ID,
+                                              ~ 1|Species,
+                                              ~ 1|Phylogeny),
+                                              R = list(Phylogeny = cor),
+                                method = "REML",
+                                data = meta,
+                                sparse = TRUE, # makes it quicker to run
+                                control = list(optimizer="optim"))
+
+forest(rom.simple.adj)
+summary(rom.simple.adj)
+
+i2_ml(rom.simple.adj)
+r2_ml(rom.simple.adj)
+
+sum <- summary(rom.simple.adj)
+sum_I2 <- i2_ml(rom.simple.adj)
+sum_R2 <- r2_ml(rom.simple.adj)
+
+res.simple.adj <- data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
+                          beta = as.numeric(sum$beta),
+                          percentage_increase_or_decrease_on_treatment = (exp(sum$beta)-1)*100,
+                          real.effect.value = exp(sum$beta),
+                          pval = sum$pval,
+                          ci.lb = sum$ci.lb,
+                          ci.ub = sum$ci.ub,
+                          I2_total = sum_I2[[1]],
+                          I2_study = sum_I2[[2]],
+                          I2_Effect_ID = sum_I2[[3]],
+                          I2_Species = sum_I2[[4]],
+                          I2_Phylogeny = sum_I2[[5]],
+                          R2_marginal_fixed = sum_R2[[1]]*100,
+                          R2_conditional_fixed_random = sum_R2[[2]]*100,
+                          Moderator_significance_stat = sum$QM,
+                          Moderator_significance_pval = sum$QMp,
+                          AIC = rom.simple.adj$fit.stats$REML[3])
+        
+res_simple.adj_df <- bind_rows(res.simple.adj)
+write.csv(res_simple.adj_df, file = "./output/summ_simple_adj.csv")
+
+simp.adj_orch <- orchard_plot(rom.simple.adj,  xlab = "lnRR", group="Study_Experiment", data=meta)
+simp.adj_orch
+ggsave(simp.adj_orch, file = "./output/simp.adj_orch.tiff", dpi = plot_dpi,width = 10, height = 8)
+
+simp.adj_cat <- caterpillars(rom.simple.adj, xlab = "lnRR", group="Study_Experiment", data=meta)
+simp.adj_cat
+ggsave(simp.adj_cat, file = "./output/simp.adj_cat.tiff", dpi = plot_dpi)
+```
+
+
+## Adding Mod Parameter 
+testing whether parameter (abundance or percentage cover) has an influence
+
 ```{r, results='hide', fig.show='hide'}
 #using reduced dataset where each level comprises of at least 3 experiments
 rom.Parameter <- rma.mv(yi, V, mods = ~ Parameter - 1,
                                               random = list(~ 1|Study,
-                                                            ~ 1|Study_Experiment,
-                                                            ~ 1|Study_Experiment_Duration,
                                                             ~ 1|Effect_ID,
                                                             ~ 1|Species,
                                                             ~ 1|Phylogeny),
                                                            R = list(Phylogeny = cor),
                                                            method = "REML",
                                                            data = meta,
+                                                           sparse = TRUE, # makes it quicker to run
                                                            control = list(optimizer ="optim"))
 
 
@@ -767,11 +855,9 @@ res.Parameter <-data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
                           ci.ub = sum$ci.ub,
                           I2_total = sum_I2[[1]],
                           I2_study = sum_I2[[2]],
-                          I2_Study_Experiment = sum_I2[[3]],
-                          I2_Study_Experiment_Duration = sum_I2[[4]],
-                          I2_Effect_ID = sum_I2[[5]],
-                          I2_Species = sum_I2[[6]],
-                          I2_Phylogeny = sum_I2[[7]],
+                          I2_Effect_ID = sum_I2[[3]],
+                          I2_Species = sum_I2[[4]],
+                          I2_Phylogeny = sum_I2[[5]],
                           R2_marginal_fixed = sum_R2[[1]]*100,
                           R2_conditional_fixed_random = sum_R2[[2]]*100,
                           Moderator_significance_stat = sum$QM,
@@ -798,26 +884,27 @@ ggsave(
 
 Parameter_cat <-
   caterpillars(rom.Parameter, mod = "Parameter", xlab = "Ratio of means", group="Study_Experiment", data=meta)
-FeatureStatus_cat
-ggsave(FeatureStatus_cat, file = "./output/Parameter_cat.tiff", dpi = plot_dpi)
+Parameter_cat
+ggsave(Parameter_cat, file = "./output/Parameter_cat.tiff", dpi = plot_dpi)
 
 ```
+
+Parameter was not significant and was therefore not further considered in the model.
+
 
 
 ## Adding Mod FEATURE: STATUS
 ### test whether N or NI is different from 0
 ```{r, results='hide', fig.show='hide'}
-#using reduced dataset where each level comprises of at least 3 experiments
 rom.FeatureStatus <- rma.mv(yi, V, mods = ~ Feature_Status - 1,
                                               random = list(~ 1|Study,
-                                                            ~ 1|Study_Experiment,
-                                                            ~ 1|Study_Experiment_Duration,
                                                             ~ 1|Effect_ID,
                                                             ~ 1|Species,
                                                             ~ 1|Phylogeny),
                                                            R = list(Phylogeny = cor),
                                                            method = "REML",
                                                            data = meta,
+                                                           sparse = TRUE, # makes it quicker to run
                                                            control = list(optimizer ="optim"))
 
 
@@ -834,11 +921,9 @@ res.FeatureStatus <-data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
                           ci.ub = sum$ci.ub,
                           I2_total = sum_I2[[1]],
                           I2_study = sum_I2[[2]],
-                          I2_Study_Experiment = sum_I2[[3]],
-                          I2_Study_Experiment_Duration = sum_I2[[4]],
-                          I2_Effect_ID = sum_I2[[5]],
-                          I2_Species = sum_I2[[6]],
-                          I2_Phylogeny = sum_I2[[7]],
+                          I2_Effect_ID = sum_I2[[3]],
+                          I2_Species = sum_I2[[4]],
+                          I2_Phylogeny = sum_I2[[5]],
                           R2_marginal_fixed = sum_R2[[1]]*100,
                           R2_conditional_fixed_random = sum_R2[[2]]*100,
                           Moderator_significance_stat = sum$QM,
@@ -890,13 +975,91 @@ write.csv(con_df, file = "./output/contrasts_FeatureStatus.csv")
 
 ```
 
-### test for differences in variance between N and NI (@Shinichi: I had this run for over a day and it still wasn't giving me an output, which is why I hashed it out. the usual optimizer optim with nelder mead method did not work. I tried BFGS as well which also didn't work. Didn't bother with the others but tried bobyqa instead, but that was running for a day without an output. Do you have any suggestions
+## Adding Mod STATUS
+### 
+```{r, results='hide', fig.show='hide'}
+rom.Status <- rma.mv(yi, V, mods = ~ Status.AUS - 1,
+                                              random = list(~ 1|Study,
+                                                            ~ 1|Effect_ID,
+                                                            ~ 1|Species,
+                                                            ~ 1|Phylogeny),
+                                                           R = list(Phylogeny = cor),
+                                                           method = "REML",
+                                                           data = meta,
+                                                           sparse = TRUE, # makes it quicker to run
+                                                           control = list(optimizer ="optim"))
+
+
+sum <- summary(rom.Status)
+sum_I2 <- i2_ml(rom.Status)
+sum_R2 <- r2_ml(rom.Status)
+
+res.Status <-data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
+                          beta = as.numeric(sum$beta),
+                          percentage_increase_or_decrease_on_Treatment = (exp(sum$beta)-1)*100,
+                          real.effect.value = exp(sum$beta),
+                          pval = sum$pval,
+                          ci.lb = sum$ci.lb,
+                          ci.ub = sum$ci.ub,
+                          I2_total = sum_I2[[1]],
+                          I2_study = sum_I2[[2]],
+                          I2_Effect_ID = sum_I2[[3]],
+                          I2_Species = sum_I2[[4]],
+                          I2_Phylogeny = sum_I2[[5]],
+                          R2_marginal_fixed = sum_R2[[1]]*100,
+                          R2_conditional_fixed_random = sum_R2[[2]]*100,
+                          Moderator_significance_stat = sum$QM,
+                          Moderator_significance_pval = sum$QMp,
+                          AIC = rom.Status$fit.stats$REML[3])
+
+
+res_Status_df <- bind_rows(res.Status)
+write.csv(res_Status_df, file = "./output/summ_Status.csv")
+
+
+Status_orch <-
+  orchard_plot(rom.Status, mod = "Status.AUS", xlab = "Ratio of means", group="Study_Experiment", data=meta) + theme(axis.text.y = element_text(angle = 0, hjust = 1))
+Status_orch
+
+ggsave(
+ Status_orch,
+  file = "./output/Status_orch.tiff",
+  dpi = plot_dpi,
+  width = 10,
+  height = 8
+)
+
+
+Status_cat <-
+  caterpillars(rom.Status, mod = "Status.AUS", xlab = "Ratio of means", group="Study_Experiment", data=meta)
+Status_cat
+ggsave(Status_cat, file = "./output/Status_cat.tiff", dpi = plot_dpi)
+
+#test whether NI and N vary from one another
+
+table(meta$Status.AUS)
+contrast_Status <- summary(glht(
+  rom.Status,
+  linfct = c(
+    "Status.AUSNI - Status.AUSN = 0"
+  )
+))
+
+contrasts_list <- mget(ls(pattern = "^contrast_+"))
+summary(contrasts_list)
+
+con_df <- map_df(contrasts_list, ~ broom::tidy(.x), .id = "names")
+
+#save
+write.csv(con_df, file = "./output/contrasts_Status.csv")
+
+```
+
+### test for differences in variance between N and NI
 ```{r}
-rom.FeatureStatus.het <- rma.mv(yi, V, mods = ~ Feature_Status,
-                                              random = list(#~ 1|Study, 
-                                                            #~ 1|Study_Experiment, # with these things - the model may not run
-                                                            #~ 1|Study_Experiment_Duration,
-                                                            ~ 1 + Feature_Status|Effect_ID,
+rom.Status.het <- rma.mv(yi, V, mods = ~ Status.AUS,
+                                              random = list(~ 1|Study, 
+                                                            ~ 1 + Status.AUS|Effect_ID,
                                                             ~ 1|Species,
                                                             ~ 1|Phylogeny),
                                                            R = list(Phylogeny = cor),
@@ -906,12 +1069,44 @@ rom.FeatureStatus.het <- rma.mv(yi, V, mods = ~ Feature_Status,
                                                            sparse = TRUE, # this speeds things up
                                                            test = "t",
                                                            data = meta,
-                                                           control=list(optimizer="L-BFGS-B")) #added as error occured with optim with “Nelder-Mead”, “BFGS”,  did not work. have not tried “CG”, “L-BFGS-B”, “SANN”, “Brent”)
+                                                           control=list(optimizer="L-BFGS-B")) 
 
-rom.FeatureStatus.hom <- rma.mv(yi, V, mods = ~ Feature_Status,
-                                              random = list(#~ 1|Study, 
-                                                            #~ 1|Study_Experiment,
-                                                            #~ 1|Study_Experiment_Duration,
+# Multivariate Meta-Analysis Model (k = 1950; method: REML)
+# 
+#     logLik    Deviance         AIC         BIC        AICc   
+# -2635.5380   5271.0760   5285.0760   5324.0979   5285.1338   
+# 
+# Variance Components:
+# 
+#             estim    sqrt  nlvls  fixed     factor    R 
+# sigma^2.1  0.0972  0.3117      8     no      Study   no 
+# sigma^2.2  0.0521  0.2282     60     no    Species   no 
+# sigma^2.3  0.0360  0.1898     60     no  Phylogeny  yes 
+# 
+# outer factor: Effect_ID  (nlvls = 1950)
+# inner factor: Status.AUS (nlvls = 2)
+# 
+#             estim    sqrt  k.lvl  fixed  level 
+# tau^2.1    0.0703  0.2651    631     no      N 
+# tau^2.2    0.0000  0.0004   1319     no     NI 
+# 
+# Test for Residual Heterogeneity:
+# QE(df = 1948) = 1486.5229, p-val = 1.0000
+# 
+# Test of Moderators (coefficient 2):
+# F(df1 = 1, df2 = 1948) = 0.0956, p-val = 0.7572
+# 
+# Model Results:
+# 
+#               estimate      se    tval    df    pval    ci.lb   ci.ub    
+# intrcpt         0.1560  0.1819  0.8576  1948  0.3912  -0.2007  0.5128    
+# Status.AUSNI    0.0313  0.1013  0.3091  1948  0.7572  -0.1674  0.2301    
+# 
+# ---
+# Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+rom.Status.hom <- rma.mv(yi, V, mods = ~ Status.AUS,
+                                              random = list(~ 1|Study, 
                                                             ~ 1|Effect_ID,
                                                             ~ 1|Species,
                                                             ~ 1|Phylogeny),
@@ -925,56 +1120,41 @@ rom.FeatureStatus.hom <- rma.mv(yi, V, mods = ~ Feature_Status,
                                                            control=list(optimizer="L-BFGS-B")) 
 
 # saving so no need to run later on
-saveRDS(rom.FeatureStatus.hom, here("data", "rom.FeatureStatus.hom.RDS"))
-saveRDS(rom.FeatureStatus.het, here("data", "rom.FeatureStatus.het.RDS"))
+saveRDS(rom.Status.hom, here("data", "rom.Status.hom.RDS"))
+saveRDS(rom.Status.het, here("data", "rom.Status.het.RDS"))
 
-rom.FeatureStatus.hom <- readRDS(here("data", "rom.FeatureStatus.hom.RDS"))
-rom.FeatureStatus.het <- readRDS(here("data", "rom.FeatureStatus.het.RDS"))
+rom.Status.hom <- readRDS(here("data", "rom.Status.hom.RDS"))
+rom.Status.het <- readRDS(here("data", "rom.Status.het.RDS"))
   
-summary(rom.FeatureStatus.hom)
-summary(rom.FeatureStatus.het)
+summary(rom.Status.hom)
+summary(rom.Status.het)
+
+#Estimated variances (tau values)
+
 
 # het model is much better
-anova(rom.FeatureStatus.het, rom.FeatureStatus.hom)
+anova(rom.Status.het, rom.Status.hom)
+
+#         df       AIC       BIC      AICc     logLik     LRT   pval        QE 
+# Full     7 5285.0760 5324.0979 5285.1338 -2635.5380                1486.5229 
+# Reduced  6 5300.2813 5333.7287 5300.3246 -2644.1407 17.2053 <.0001 1486.5229 
 
 
-p1 <- orchard_plot(rom.FeatureStatus.hom, mod = "Feature_Status", xlab = "Ratio of means (homoscadasticiy)", group="Study_Experiment") + 
+p1 <- orchard_plot(rom.Status.hom, mod = "Status.AUS", xlab = "Ratio of means (homoscadasticiy)", group="Study_Experiment", data=meta) + 
   theme(axis.text.y = element_text(angle = 0, hjust = 1))
 
-p2 <- orchard_plot(rom.FeatureStatus.het, mod = "Feature_Status", xlab = "Ratio of means (heteroscadasticiy)", group="Study_Experiment") + 
+p2 <- orchard_plot(rom.Status.het, mod = "Status.AUS", xlab = "Ratio of means (heteroscadasticiy)", group="Study_Experiment", data=meta) + 
                      theme(axis.text.y = element_text(angle = 0, hjust = 1))
 
-p1 + p2
-
-#estimate of tau 2.2 almost twice as big as tau 2.1
-
-# 
-# library(flextable)
-# flextable::flextable(mod_results(rom.FeatureStatus.het, group = "Study_Experiment", mod = "FeatureStatus", data=meta)$mod_table)
-
-
-#
-# 
-# rom.FeatureStatus.het2 <- rma.mv(yi, V, mods = ~ Feature_Status,
-#                                               random = list(~ 1 + Feature_Status|Study, 
-#                                                             #~ 1|Study_Experiment, # with these things - the model may not run
-#                                                             #~ 1|Study_Experiment_Duration,
-#                                                             ~ 1 + Feature_Status|Effect_ID,
-#                                                             ~ 1|Species,
-#                                                             ~ 1|Phylogeny),
-#                                                            R = list(Phylogeny = cor),
-#                                                            #rho = 0,
-#                                                            struc = "DIAG",
-#                                                            method = "REML",
-#                                                            sparse = TRUE, # this speeds things up
-#                                                            test = "t",
-#                                                            data = meta,
-#                                                            control=list(optimizer="BFGS")) 
-# 
-# summary(rom.FeatureStatus.het2)
-# 
-# orchard_plot(rom.FeatureStatus.het2, mod = "Feature_Status", xlab = "Ratio of means (heteroscadasticiy)", group="Study_Experiment") + 
-#                      theme(axis.text.y = element_text(angle = 0, hjust = 1))
+Het_hom_models_orch <- p1 + p2
+Het_hom_models_orch
+ggsave(
+ Het_hom_models_orch,
+  file = "./output/Het_hom_models_orch.tiff",
+  dpi = plot_dpi,
+  width = 20,
+  height = 8
+)
 
 
 ```
@@ -986,14 +1166,13 @@ p1 + p2
 #using reduced dataset where each level comprises of at least 3 experiments
 rom.FeatureTaxonomicGroup <- rma.mv(yi, V_reduced, mods = ~ Feature_TaxonomicGroup - 1,
                                               random = list(~ 1|Study,
-                                                            ~ 1|Study_Experiment,
-                                                            ~ 1|Study_Experiment_Duration,
                                                             ~ 1|Effect_ID,
                                                             ~ 1|Species,
                                                             ~ 1|Phylogeny),
                                                            R = list(Phylogeny = cor2),
                                                            method = "REML",
                                                            data = meta_reduced,
+                                                           sparse = TRUE, # makes it quicker to run
                                                            control = list(optimizer ="optim"))
 
 
@@ -1010,11 +1189,9 @@ res.FeatureTaxonomicGroup <-data.frame(effectname = attr(sum$beta, "dimnames")[[
                           ci.ub = sum$ci.ub,
                           I2_total = sum_I2[[1]],
                           I2_study = sum_I2[[2]],
-                          I2_Study_Experiment = sum_I2[[3]],
-                          I2_Study_Experiment_Duration = sum_I2[[4]],
-                          I2_Effect_ID = sum_I2[[5]],
-                          I2_Species = sum_I2[[6]],
-                          I2_Phylogeny = sum_I2[[7]],
+                          I2_Effect_ID = sum_I2[[3]],
+                          I2_Species = sum_I2[[4]],
+                          I2_Phylogeny = sum_I2[[5]],
                           R2_marginal_fixed = sum_R2[[1]]*100,
                           R2_conditional_fixed_random = sum_R2[[2]]*100,
                           Moderator_significance_stat = sum$QM,
@@ -1043,79 +1220,78 @@ FeatureTaxonomicGroup_cat <-
 FeatureTaxonomicGroup_cat
 ggsave(FeatureTaxonomicGroup_cat, file = "./output/FeatureTaxonomicGroup_cat.tiff", dpi = plot_dpi)
 
-# checking contrasts(although clear from orchard plot that they don't vary)
-
-table(meta_reduced$Feature_TaxonomicGroup)
-contrast_FeatureTaxonomicGroup <- summary(glht(
-  rom.FeatureTaxonomicGroup,
-  linfct = c(
-    "Feature_TaxonomicGroupSubstrate_Polychaetes - Feature_TaxonomicGroupSubstrate_Bryozoans = 0",
-    "Feature_TaxonomicGroupSubstrate_Polychaetes - Feature_TaxonomicGroupSubstrate_Barnacles = 0",
-    "Feature_TaxonomicGroupSubstrate_Polychaetes - Feature_TaxonomicGroupSubstrate_Ascidians = 0",
-    "Feature_TaxonomicGroupSubstrate_Bryozoans - Feature_TaxonomicGroupSubstrate_Barnacles = 0",
-    "Feature_TaxonomicGroupSubstrate_Bryozoans - Feature_TaxonomicGroupSubstrate_Ascidians = 0",
-    "Feature_TaxonomicGroupSubstrate_Barnacles - Feature_TaxonomicGroupSubstrate_Ascidians = 0",
-    
-    "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Polychaetes = 0",
-    "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Bryozoans = 0",
-    "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Bivalves = 0",
-    "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Barnacles = 0",
-    "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Ascidians = 0",
-    "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Anthozoans = 0",
-    "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Algae = 0",
-    "Feature_TaxonomicGroupOrientation_Polychaetes - Feature_TaxonomicGroupOrientation_Bryozoans = 0",
-    "Feature_TaxonomicGroupOrientation_Polychaetes - Feature_TaxonomicGroupOrientation_Bivalves = 0",
-    "Feature_TaxonomicGroupOrientation_Polychaetes - Feature_TaxonomicGroupOrientation_Barnacles = 0",
-    "Feature_TaxonomicGroupOrientation_Polychaetes - Feature_TaxonomicGroupOrientation_Ascidians = 0",
-    "Feature_TaxonomicGroupOrientation_Polychaetes - Feature_TaxonomicGroupOrientation_Anthozoans = 0",
-    "Feature_TaxonomicGroupOrientation_Polychaetes - Feature_TaxonomicGroupOrientation_Algae = 0",
-    "Feature_TaxonomicGroupOrientation_Bryozoans - Feature_TaxonomicGroupOrientation_Bivalves = 0",
-    "Feature_TaxonomicGroupOrientation_Bryozoans - Feature_TaxonomicGroupOrientation_Barnacles = 0",
-    "Feature_TaxonomicGroupOrientation_Bryozoans - Feature_TaxonomicGroupOrientation_Ascidians = 0",
-    "Feature_TaxonomicGroupOrientation_Bryozoans - Feature_TaxonomicGroupOrientation_Anthozoans = 0",
-    "Feature_TaxonomicGroupOrientation_Bryozoans - Feature_TaxonomicGroupOrientation_Algae = 0",
-    "Feature_TaxonomicGroupOrientation_Bivalves - Feature_TaxonomicGroupOrientation_Barnacles = 0",
-    "Feature_TaxonomicGroupOrientation_Bivalves - Feature_TaxonomicGroupOrientation_Ascidians = 0",
-    "Feature_TaxonomicGroupOrientation_Bivalves - Feature_TaxonomicGroupOrientation_Anthozoans = 0",
-    "Feature_TaxonomicGroupOrientation_Bivalves - Feature_TaxonomicGroupOrientation_Algae = 0",
-    "Feature_TaxonomicGroupOrientation_Barnacles - Feature_TaxonomicGroupOrientation_Ascidians = 0",
-    "Feature_TaxonomicGroupOrientation_Barnacles - Feature_TaxonomicGroupOrientation_Anthozoans = 0",
-    "Feature_TaxonomicGroupOrientation_Barnacles - Feature_TaxonomicGroupOrientation_Algae = 0",
-    "Feature_TaxonomicGroupOrientation_Ascidians - Feature_TaxonomicGroupOrientation_Anthozoans = 0",
-    "Feature_TaxonomicGroupOrientation_Ascidians - Feature_TaxonomicGroupOrientation_Algae = 0",
-    "Feature_TaxonomicGroupOrientation_Anthozoans - Feature_TaxonomicGroupOrientation_Algae = 0",
-    
-    "Feature_TaxonomicGroupMovement_Poriferans - Feature_TaxonomicGroupMovement_Polychaetes = 0",
-    "Feature_TaxonomicGroupMovement_Poriferans - Feature_TaxonomicGroupMovement_Bryozoans = 0",
-    "Feature_TaxonomicGroupMovement_Poriferans - Feature_TaxonomicGroupMovement_Bivalves = 0",
-    "Feature_TaxonomicGroupMovement_Poriferans - Feature_TaxonomicGroupMovement_Barnacles = 0",
-    "Feature_TaxonomicGroupMovement_Poriferans - Feature_TaxonomicGroupMovement_Ascidians = 0",
-    "Feature_TaxonomicGroupMovement_Poriferans - Feature_TaxonomicGroupMovement_Algae = 0",
-    "Feature_TaxonomicGroupMovement_Polychaetes - Feature_TaxonomicGroupMovement_Bryozoans = 0",
-    "Feature_TaxonomicGroupMovement_Polychaetes - Feature_TaxonomicGroupMovement_Bivalves = 0",
-    "Feature_TaxonomicGroupMovement_Polychaetes - Feature_TaxonomicGroupMovement_Barnacles = 0",
-    "Feature_TaxonomicGroupMovement_Polychaetes - Feature_TaxonomicGroupMovement_Ascidians = 0",
-    "Feature_TaxonomicGroupMovement_Polychaetes - Feature_TaxonomicGroupMovement_Algae = 0",
-    "Feature_TaxonomicGroupMovement_Bryozoans - Feature_TaxonomicGroupMovement_Bivalves = 0",
-    "Feature_TaxonomicGroupMovement_Bryozoans - Feature_TaxonomicGroupMovement_Barnacles = 0",
-    "Feature_TaxonomicGroupMovement_Bryozoans - Feature_TaxonomicGroupMovement_Ascidians = 0",
-    "Feature_TaxonomicGroupMovement_Bryozoans - Feature_TaxonomicGroupMovement_Algae = 0",
-    "Feature_TaxonomicGroupMovement_Bivalves - Feature_TaxonomicGroupMovement_Barnacles = 0",
-    "Feature_TaxonomicGroupMovement_Bivalves - Feature_TaxonomicGroupMovement_Ascidians = 0",
-    "Feature_TaxonomicGroupMovement_Bivalves - Feature_TaxonomicGroupMovement_Algae = 0",
-    "Feature_TaxonomicGroupMovement_Barnacles - Feature_TaxonomicGroupMovement_Ascidians = 0",
-    "Feature_TaxonomicGroupMovement_Barnacles - Feature_TaxonomicGroupMovement_Algae = 0",
-    "Feature_TaxonomicGroupMovement_Ascidians - Feature_TaxonomicGroupMovement_Algae = 0"
-  )
-))
-
-contrasts_list <- mget(ls(pattern = "^contrast_+"))
-summary(contrasts_list)
-
-con_df <- map_df(contrasts_list, ~ broom::tidy(.x), .id = "names")
-
-#save
-write.csv(con_df, file = "./output/contrasts_FeatureTaxonomicGroup.csv")
+# 
+# table(meta_reduced$Feature_TaxonomicGroup)
+# contrast_FeatureTaxonomicGroup <- summary(glht(
+#   rom.FeatureTaxonomicGroup,
+#   linfct = c(
+#     "Feature_TaxonomicGroupSubstrate_Polychaetes - Feature_TaxonomicGroupSubstrate_Bryozoans = 0",
+#     "Feature_TaxonomicGroupSubstrate_Polychaetes - Feature_TaxonomicGroupSubstrate_Barnacles = 0",
+#     "Feature_TaxonomicGroupSubstrate_Polychaetes - Feature_TaxonomicGroupSubstrate_Ascidians = 0",
+#     "Feature_TaxonomicGroupSubstrate_Bryozoans - Feature_TaxonomicGroupSubstrate_Barnacles = 0",
+#     "Feature_TaxonomicGroupSubstrate_Bryozoans - Feature_TaxonomicGroupSubstrate_Ascidians = 0",
+#     "Feature_TaxonomicGroupSubstrate_Barnacles - Feature_TaxonomicGroupSubstrate_Ascidians = 0",
+#     
+#     "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Polychaetes = 0",
+#     "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Bryozoans = 0",
+#     "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Bivalves = 0",
+#     "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Barnacles = 0",
+#     "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Ascidians = 0",
+#     "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Anthozoans = 0",
+#     "Feature_TaxonomicGroupOrientation_Poriferans - Feature_TaxonomicGroupOrientation_Algae = 0",
+#     "Feature_TaxonomicGroupOrientation_Polychaetes - Feature_TaxonomicGroupOrientation_Bryozoans = 0",
+#     "Feature_TaxonomicGroupOrientation_Polychaetes - Feature_TaxonomicGroupOrientation_Bivalves = 0",
+#     "Feature_TaxonomicGroupOrientation_Polychaetes - Feature_TaxonomicGroupOrientation_Barnacles = 0",
+#     "Feature_TaxonomicGroupOrientation_Polychaetes - Feature_TaxonomicGroupOrientation_Ascidians = 0",
+#     "Feature_TaxonomicGroupOrientation_Polychaetes - Feature_TaxonomicGroupOrientation_Anthozoans = 0",
+#     "Feature_TaxonomicGroupOrientation_Polychaetes - Feature_TaxonomicGroupOrientation_Algae = 0",
+#     "Feature_TaxonomicGroupOrientation_Bryozoans - Feature_TaxonomicGroupOrientation_Bivalves = 0",
+#     "Feature_TaxonomicGroupOrientation_Bryozoans - Feature_TaxonomicGroupOrientation_Barnacles = 0",
+#     "Feature_TaxonomicGroupOrientation_Bryozoans - Feature_TaxonomicGroupOrientation_Ascidians = 0",
+#     "Feature_TaxonomicGroupOrientation_Bryozoans - Feature_TaxonomicGroupOrientation_Anthozoans = 0",
+#     "Feature_TaxonomicGroupOrientation_Bryozoans - Feature_TaxonomicGroupOrientation_Algae = 0",
+#     "Feature_TaxonomicGroupOrientation_Bivalves - Feature_TaxonomicGroupOrientation_Barnacles = 0",
+#     "Feature_TaxonomicGroupOrientation_Bivalves - Feature_TaxonomicGroupOrientation_Ascidians = 0",
+#     "Feature_TaxonomicGroupOrientation_Bivalves - Feature_TaxonomicGroupOrientation_Anthozoans = 0",
+#     "Feature_TaxonomicGroupOrientation_Bivalves - Feature_TaxonomicGroupOrientation_Algae = 0",
+#     "Feature_TaxonomicGroupOrientation_Barnacles - Feature_TaxonomicGroupOrientation_Ascidians = 0",
+#     "Feature_TaxonomicGroupOrientation_Barnacles - Feature_TaxonomicGroupOrientation_Anthozoans = 0",
+#     "Feature_TaxonomicGroupOrientation_Barnacles - Feature_TaxonomicGroupOrientation_Algae = 0",
+#     "Feature_TaxonomicGroupOrientation_Ascidians - Feature_TaxonomicGroupOrientation_Anthozoans = 0",
+#     "Feature_TaxonomicGroupOrientation_Ascidians - Feature_TaxonomicGroupOrientation_Algae = 0",
+#     "Feature_TaxonomicGroupOrientation_Anthozoans - Feature_TaxonomicGroupOrientation_Algae = 0",
+#     
+#     "Feature_TaxonomicGroupMovement_Poriferans - Feature_TaxonomicGroupMovement_Polychaetes = 0",
+#     "Feature_TaxonomicGroupMovement_Poriferans - Feature_TaxonomicGroupMovement_Bryozoans = 0",
+#     "Feature_TaxonomicGroupMovement_Poriferans - Feature_TaxonomicGroupMovement_Bivalves = 0",
+#     "Feature_TaxonomicGroupMovement_Poriferans - Feature_TaxonomicGroupMovement_Barnacles = 0",
+#     "Feature_TaxonomicGroupMovement_Poriferans - Feature_TaxonomicGroupMovement_Ascidians = 0",
+#     "Feature_TaxonomicGroupMovement_Poriferans - Feature_TaxonomicGroupMovement_Algae = 0",
+#     "Feature_TaxonomicGroupMovement_Polychaetes - Feature_TaxonomicGroupMovement_Bryozoans = 0",
+#     "Feature_TaxonomicGroupMovement_Polychaetes - Feature_TaxonomicGroupMovement_Bivalves = 0",
+#     "Feature_TaxonomicGroupMovement_Polychaetes - Feature_TaxonomicGroupMovement_Barnacles = 0",
+#     "Feature_TaxonomicGroupMovement_Polychaetes - Feature_TaxonomicGroupMovement_Ascidians = 0",
+#     "Feature_TaxonomicGroupMovement_Polychaetes - Feature_TaxonomicGroupMovement_Algae = 0",
+#     "Feature_TaxonomicGroupMovement_Bryozoans - Feature_TaxonomicGroupMovement_Bivalves = 0",
+#     "Feature_TaxonomicGroupMovement_Bryozoans - Feature_TaxonomicGroupMovement_Barnacles = 0",
+#     "Feature_TaxonomicGroupMovement_Bryozoans - Feature_TaxonomicGroupMovement_Ascidians = 0",
+#     "Feature_TaxonomicGroupMovement_Bryozoans - Feature_TaxonomicGroupMovement_Algae = 0",
+#     "Feature_TaxonomicGroupMovement_Bivalves - Feature_TaxonomicGroupMovement_Barnacles = 0",
+#     "Feature_TaxonomicGroupMovement_Bivalves - Feature_TaxonomicGroupMovement_Ascidians = 0",
+#     "Feature_TaxonomicGroupMovement_Bivalves - Feature_TaxonomicGroupMovement_Algae = 0",
+#     "Feature_TaxonomicGroupMovement_Barnacles - Feature_TaxonomicGroupMovement_Ascidians = 0",
+#     "Feature_TaxonomicGroupMovement_Barnacles - Feature_TaxonomicGroupMovement_Algae = 0",
+#     "Feature_TaxonomicGroupMovement_Ascidians - Feature_TaxonomicGroupMovement_Algae = 0"
+#   )
+# ))
+# 
+# contrasts_list <- mget(ls(pattern = "^contrast_+"))
+# summary(contrasts_list)
+# 
+# con_df <- map_df(contrasts_list, ~ broom::tidy(.x), .id = "names")
+# 
+# #save
+# write.csv(con_df, file = "./output/contrasts_FeatureTaxonomicGroup.csv")
 ```
 
 
@@ -1128,14 +1304,13 @@ write.csv(con_df, file = "./output/contrasts_FeatureTaxonomicGroup.csv")
 # you cannot do "-1" --- this means getting the intercept out and you do not want to do this for a slope 
 rom.Year <- rma.mv(yi, V, mods = ~ Year, 
                                               random = list(~ 1|Study,
-                                                            ~ 1|Study_Experiment,
-                                                            ~ 1|Study_Experiment_Duration,
                                                             ~ 1|Effect_ID,
                                                             ~ 1|Species,
                                                             ~ 1|Phylogeny),
                                             R = list(Phylogeny = cor),
                               method="REML",
                               data=meta,
+                   sparse = TRUE, # makes it quicker to run
                               control = list(optimizer="optim"))
 
 
@@ -1155,11 +1330,9 @@ res.Year <- data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
                           ci.ub = sum$ci.ub,
                           I2_total = sum_I2[[1]],
                           I2_study = sum_I2[[2]],
-                          I2_Study_Experiment = sum_I2[[3]],
-                          I2_Study_Experiment_Duration = sum_I2[[4]],
-                          I2_Effect_ID = sum_I2[[5]],
-                          I2_Species = sum_I2[[6]],
-                          I2_Phylogeny = sum_I2[[7]],
+                          I2_Effect_ID = sum_I2[[3]],
+                          I2_Species = sum_I2[[4]],
+                          I2_Phylogeny = sum_I2[[5]],
                           R2_marginal_fixed = sum_R2[[1]]*100,
                           R2_conditional_fixed_random = sum_R2[[2]]*100,
                           Moderator_significance_stat = sum$QM,
@@ -1179,18 +1352,17 @@ forest(x=c(rom.Year$b),sei=c(rom.Year$se), ci.lb=c(rom.Year$ci.lb), ci.ub=c(rom.
 ## Adding Mod ALL MODERATORS (left out Parameter here as not really part of the question)
 
 ```{r}
-rom.All <- rma.mv( yi, V, mods = ~ Feature_Status +
+rom.All <- rma.mv( yi, V, mods = ~ Status.AUS +
                                    Feature_TaxonomicGroup +
                                    Year,
                                               random = list(~ 1|Study,
-                                                            ~ 1|Study_Experiment,
-                                                            ~ 1|Study_Experiment_Duration,
                                                             ~ 1|Effect_ID,
                                                             ~ 1|Species,
                                                             ~ 1|Phylogeny),
                                         R = list(Phylogeny = cor),
                           method = "REML",
                           data = meta,
+                   sparse = TRUE, # makes it quicker to run
                           control = list(optimizer="optim"))
 
 forest(rom.All)
@@ -1208,11 +1380,9 @@ res.All <- data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
                           ci.ub = sum$ci.ub,
                           I2_total = sum_I2[[1]],
                           I2_study = sum_I2[[2]],
-                          I2_Study_Experiment = sum_I2[[3]],
-                          I2_Study_Experiment_Duration = sum_I2[[4]],
-                          I2_Effect_ID = sum_I2[[5]],
-                          I2_Species = sum_I2[[6]],
-                          I2_Phylogeny = sum_I2[[7]],
+                          I2_Effect_ID = sum_I2[[3]],
+                          I2_Species = sum_I2[[4]],
+                          I2_Phylogeny = sum_I2[[5]],
                           R2_marginal_fixed = sum_R2[[1]]*100,
                           R2_conditional_fixed_random = sum_R2[[2]]*100,
                           Moderator_significance_stat = sum$QM,
@@ -1222,11 +1392,6 @@ res.All <- data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
 res.All_df <- bind_rows(res.All)
 write.csv(res.All_df, file = "./output/summ_All.csv")
 ```
-
-
-#######################################################################################################
-ANYTHING BELOW TO BE UPDATED ONCE EVERYTHING ABOVE IS FINALISED
-#######################################################################################################
 
 
 ##Model comparison (will do once the rest is all ok)
@@ -1246,18 +1411,18 @@ ANYTHING BELOW TO BE UPDATED ONCE EVERYTHING ABOVE IS FINALISED
 summary(rom.All)
 
 # 
-summary(rom.FeatureStatus)
-anova(rom.All, btt = 2:13)
-#-> becomes significant
+summary(rom.Status)
+anova(rom.All, btt = 2)
+#-> remains non-significant
 
 # 
 summary(rom.FeatureTaxonomicGroup)
-anova(rom.All, btt = 2:13)
-#-> becomes significant
+anova(rom.All, btt = 3:23)
+#-> remains significant
 
 #
 summary(rom.Year)
-anova(rom.All, btt = 14)
+anova(rom.All, btt = 24)
 #-> remains non-significant
 
 
@@ -1277,17 +1442,41 @@ Only significant moderators included.
 ###Funnel Plots
 ```{r}
 
-funnel(rom.simple, yaxis = "sei", level = c(90, 95, 99), shade = c("white", 
-    "gray55", "gray75"), refline = 0, legend = TRUE)
-#saved by exporting
-
-jpeg("./output/funnel_simple.jpg",
+jpeg("./output/funnel_simple._adj.jpg",
      width = 600,
      height = 600)
 par(cex = 1.4)
 
 funnel(
-  rom.simple,
+  rom.simple.adj,
+  yaxis = "sei",
+  level = c(90, 95, 99),
+  shade = c("white",
+            "gray55", "gray75"),
+  refline = 0,
+  legend = TRUE
+)
+dev.off()
+
+
+rom.All.sign <- rma.mv(yi, V, mods = ~ Feature_TaxonomicGroup,
+                                              random = list(~ 1|Study,
+                                                            ~ 1|Effect_ID,
+                                                            ~ 1|Species,
+                                                            ~ 1|Phylogeny),
+                                                           R = list(Phylogeny = cor),
+                                                           method = "REML",
+                                                           data = meta,
+                                                           sparse = TRUE, # makes it quicker to run
+                                                           control = list(optimizer ="optim"))
+
+
+jpeg("./output/funnel_All_sign.jpg",
+     width = 600,
+     height = 600)
+par(cex = 1.4)
+funnel(
+  rom.All.sign,
   yaxis = "sei",
   level = c(90, 95, 99),
   shade = c("white",
@@ -1306,26 +1495,68 @@ dev.off()
 ### Eggers regression to test significance of publication bias (no intercept)
 # testing whether any asymmetries in the funnel plots are significant
 
-egger_reg_simple <- rma.mv (yi, V, mods = ~sqrt(vi), 
+egger_reg_simple.adj <- rma.mv (yi, V, mods = ~sqrt(vi), 
                                               random = list(~ 1|Study,
-                                                            ~ 1|Study_Experiment,
-                                                            ~ 1|Study_Experiment_Duration,
                                                             ~ 1|Effect_ID,
                                                             ~ 1|Species,
                                                             ~ 1|Phylogeny),
                                                  R = list(Phylogeny = cor),
                                    method="REML",
                                    data=meta,
+                            sparse = TRUE, # makes it quicker to run
                                    control = list(optimizer="optim"))
 
-summary(egger_reg_simple)
-
+summary(egger_reg_simple.adj)
 
 # Model Results:
 # 
 #           estimate      se     zval    pval    ci.lb   ci.ub    
-# intrcpt     0.1897  0.4483   0.4231  0.6722  -0.6889  1.0683    
-# sqrt(vi)   -0.3777  0.4915  -0.7683  0.4423  -1.3411  0.5857    
+# intrcpt     0.1275  0.1513   0.8430  0.3992  -0.1690  0.4240    
+# sqrt(vi)   -0.0067  0.2565  -0.0261  0.9792  -0.5094  0.4961    
+# 
+# ---
+# Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+egger_reg_All.sign <- rma.mv (yi, V, mods = ~sqrt(vi) +
+                         Feature_TaxonomicGroup, 
+                                              random = list(~ 1|Study,
+                                                            ~ 1|Effect_ID,
+                                                            ~ 1|Species,
+                                                            ~ 1|Phylogeny),
+                                                 R = list(Phylogeny = cor),
+                                   method="REML",
+                                   data=meta,
+                            sparse = TRUE, # makes it quicker to run
+                                   control = list(optimizer="optim"))
+
+summary(egger_reg_All.sign)
+
+# Model Results:
+# 
+#                                                estimate      se     zval    pval    ci.lb   ci.ub      
+# intrcpt                                         -0.1761  0.1789  -0.9844  0.3249  -0.5267  0.1745      
+# sqrt(vi)                                         0.0348  0.2563   0.1360  0.8919  -0.4675  0.5372      
+# Feature_TaxonomicGroupMovement_Anthozoans        0.0599  1.2917   0.0464  0.9630  -2.4718  2.5915      
+# Feature_TaxonomicGroupMovement_Ascidians         0.9149  0.2145   4.2649  <.0001   0.4945  1.3354  *** 
+# Feature_TaxonomicGroupMovement_Barnacles         0.7025  0.2040   3.4432  0.0006   0.3026  1.1024  *** 
+# Feature_TaxonomicGroupMovement_Bivalves          1.5675  0.3383   4.6335  <.0001   0.9044  2.2305  *** 
+# Feature_TaxonomicGroupMovement_Bryozoans         0.0121  0.1796   0.0674  0.9462  -0.3399  0.3641      
+# Feature_TaxonomicGroupMovement_Polychaetes       0.0178  0.2083   0.0856  0.9318  -0.3904  0.4260      
+# Feature_TaxonomicGroupMovement_Poriferans        0.1776  0.2973   0.5972  0.5504  -0.4052  0.7603      
+# Feature_TaxonomicGroupOrientation_Algae         -0.4840  0.2605  -1.8580  0.0632  -0.9945  0.0266    . 
+# Feature_TaxonomicGroupOrientation_Anthozoans     0.7528  0.3584   2.1001  0.0357   0.0502  1.4553    * 
+# Feature_TaxonomicGroupOrientation_Ascidians      0.3799  0.2074   1.8319  0.0670  -0.0266  0.7864    . 
+# Feature_TaxonomicGroupOrientation_Barnacles      0.4651  0.2033   2.2882  0.0221   0.0667  0.8635    * 
+# Feature_TaxonomicGroupOrientation_Bivalves       0.4967  0.3593   1.3827  0.1668  -0.2074  1.2009      
+# Feature_TaxonomicGroupOrientation_Bryozoans      0.2487  0.1806   1.3773  0.1684  -0.1052  0.6026      
+# Feature_TaxonomicGroupOrientation_Polychaetes    0.5176  0.2118   2.4441  0.0145   0.1025  0.9327    * 
+# Feature_TaxonomicGroupOrientation_Poriferans     0.2411  0.3275   0.7360  0.4617  -0.4009  0.8830      
+# Feature_TaxonomicGroupSubstrate_Algae            0.0475  0.6682   0.0710  0.9434  -1.2622  1.3572      
+# Feature_TaxonomicGroupSubstrate_Anthozoans       0.4272  0.3913   1.0918  0.2749  -0.3397  1.1941      
+# Feature_TaxonomicGroupSubstrate_Ascidians        0.2535  0.2087   1.2145  0.2246  -0.1556  0.6625      
+# Feature_TaxonomicGroupSubstrate_Barnacles        0.0206  0.2067   0.0996  0.9206  -0.3845  0.4257      
+# Feature_TaxonomicGroupSubstrate_Bryozoans        0.2555  0.1854   1.3778  0.1683  -0.1079  0.6188      
+# Feature_TaxonomicGroupSubstrate_Polychaetes      0.6152  0.2170   2.8351  0.0046   0.1899  1.0405   ** 
 # 
 # ---
 # Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
