@@ -1,6 +1,6 @@
 "","names","contrast","null.value","estimate","std.error","statistic","adj.p.value"
-"1","contrast_TaxonomicGroupStatus","TaxonomicGroup_StatusPolychaetes_N - TaxonomicGroup_StatusPolychaetes_NI",0,0.536131735384578,0.243478735363121,2.2019653362541,0.130675085110399
-"2","contrast_TaxonomicGroupStatus","TaxonomicGroup_StatusBryozoans_N - TaxonomicGroup_StatusBryozoans_NI",0,0.150720255426714,0.133034477725259,1.13294130968049,0.773015986388009
-"3","contrast_TaxonomicGroupStatus","TaxonomicGroup_StatusBarnacles_N - TaxonomicGroup_StatusBarnacles_NI",0,-0.305967321678323,0.212424736043488,-1.44035636987062,0.554680485056525
-"4","contrast_TaxonomicGroupStatus","TaxonomicGroup_StatusAscidians_N - TaxonomicGroup_StatusAscidians_NI",0,-0.0231564185370655,0.415067783631418,-0.0557894865616178,0.999999823968908
-"5","contrast_TaxonomicGroupStatus","TaxonomicGroup_StatusAlgae_N - TaxonomicGroup_StatusAlgae_NI",0,-0.15569531901071,0.290835533965412,-0.535338020385179,0.988660354081088
+"1","contrast_TaxonomicGroupStatus","TaxonomicGroup_StatusPolychaetes_N - TaxonomicGroup_StatusPolychaetes_NIS",0,0.536131735384578,0.243478735363121,2.2019653362541,0.130673394429167
+"2","contrast_TaxonomicGroupStatus","TaxonomicGroup_StatusBryozoans_N - TaxonomicGroup_StatusBryozoans_NIS",0,0.150720255426714,0.133034477725259,1.13294130968049,0.773015995245449
+"3","contrast_TaxonomicGroupStatus","TaxonomicGroup_StatusBarnacles_N - TaxonomicGroup_StatusBarnacles_NIS",0,-0.305967321678323,0.212424736043488,-1.44035636987062,0.554683093439377
+"4","contrast_TaxonomicGroupStatus","TaxonomicGroup_StatusAscidians_N - TaxonomicGroup_StatusAscidians_NIS",0,-0.0231564185370655,0.415067783631418,-0.0557894865616178,0.999999823968909
+"5","contrast_TaxonomicGroupStatus","TaxonomicGroup_StatusAlgae_N - TaxonomicGroup_StatusAlgae_NIS",0,-0.15569531901071,0.290835533965412,-0.535338020385179,0.988660354356212
