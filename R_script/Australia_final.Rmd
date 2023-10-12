@@ -1213,13 +1213,6 @@ ggsave(
   height = 8
 )
 
-ggsave(
- FeatureTaxonomicGroup_orch,
-  file = "./output/FeatureTaxonomicGroup_orch.pdf",
-  dpi = plot_dpi,
-  width = 10,
-  height = 8
-)
 
 FeatureTaxonomicGroup_cat <-
   caterpillars(rom.FeatureTaxonomicGroup, mod = "Feature_TaxonomicGroup", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced2)
