@@ -42,9 +42,9 @@
      borderopacity="1.0"
      inkscape:pageopacity="1"
      inkscape:pageshadow="2"
-     inkscape:zoom="0.70710678"
-     inkscape:cx="764.02127"
-     inkscape:cy="685.31263"
+     inkscape:zoom="2"
+     inkscape:cx="343.47627"
+     inkscape:cy="911.87125"
      inkscape:document-units="mm"
      inkscape:current-layer="layer1"
      showgrid="false"
@@ -61,7 +61,7 @@
         <dc:format>image/svg+xml</dc:format>
         <dc:type
            rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
-        <dc:title></dc:title>
+        <dc:title />
       </cc:Work>
     </rdf:RDF>
   </metadata>
@@ -16210,7 +16210,7 @@
        inkscape:connector-curvature="0"
        id="path5529"
        style="fill:none;stroke:#333333;stroke-width:0.37747222;stroke-linecap:butt;stroke-linejoin:round;stroke-miterlimit:10;stroke-dasharray:none;stroke-opacity:1"
-       d="m 48.319974,27.86835 h 0.966611"
+       d="m 48.106561,27.86835 h 0.966611"
        inkscape:export-xdpi="96"
        inkscape:export-ydpi="96" />
     <g
@@ -16668,5 +16668,12 @@
          id="tspan15333"
          x="124.06876"
          y="147.79744">Movement</tspan></text>
+    <path
+       inkscape:connector-curvature="0"
+       id="path5529-7"
+       style="fill:none;stroke:#333333;stroke-width:0.37747225;stroke-linecap:butt;stroke-linejoin:round;stroke-miterlimit:10;stroke-dasharray:none;stroke-opacity:1"
+       d="m 48.106561,17.814178 h 0.966611"
+       inkscape:export-xdpi="96"
+       inkscape:export-ydpi="96" />
   </g>
 </svg>
