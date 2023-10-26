@@ -46,7 +46,6 @@ library(here)
 ```{r}
 meta<-read.csv("data/Dataset_Australia.csv",header=T, fileEncoding="latin1") #read in data
 
-#adjusted dataset has orientations removed for vertical up and vertical down compariasons
 
 names(meta)
 str(meta)
