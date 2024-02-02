@@ -282,7 +282,7 @@ meta <- rbind(meta_abund, meta_cov)
 ```
 
 
-## Replacing SD blanks
+## Replacing SD NA's
 We fill the missing SDs for each parameter separately. 
 
 Checks:
