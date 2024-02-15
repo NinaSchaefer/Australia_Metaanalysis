@@ -1,4 +1,0 @@
-,names,contrast,null.value,estimate,std.error,statistic,adj.p.value
-1,contrast_FeatureClassification,Feature_ClassificationSubstrate_N - Feature_ClassificationSubstrate_NIS,0,-0.086077458,0.122431851,-0.703064254,0.806317239
-2,contrast_FeatureClassification,Feature_ClassificationOrientation_N - Feature_ClassificationOrientation_NIS,0,-0.12226688,0.114247002,-1.070197711,0.555492458
-3,contrast_FeatureClassification,Feature_ClassificationMovement_N - Feature_ClassificationMovement_NIS,0,0.089128173,0.128193366,0.695263536,0.811140106

@@ -1,0 +1,1379 @@
+---
+title: "Australia"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Summary of steps taken in analyses
+
+General guidance from: http://www.metafor-project.org/doku.php 
+
+Ensuring starting with a clean environment
+```{r}
+rm(list=ls())
+#turn off sci notation: 
+options (scipen = 999)
+```
+
+
+#Preparation for analyses
+
+##Load packages
+```{r}
+library(rotl)
+library(ape)
+library(metafor)
+library(orchaRd)
+library(knitr)
+library(broom)
+library(clubSandwich)
+library(multcomp)
+library(kableExtra)
+library(downloadthis)
+library(patchwork)
+library(here)
+library(tidyverse)  
+```
+
+
+##Read in and tidy data
+```{r}
+meta<-read.csv("data/Dataset_Global_nozeros.csv",header=T, fileEncoding="latin1") #read in data
+
+
+names(meta)
+str(meta)
+
+#changing many columns to factors/numeric: 
+meta <-
+  meta %>% mutate_at (
+    vars(
+      Year,
+      ReplicatesControl,
+      ReplicatesTreatment,
+      Reporteddensityperm2
+    ),
+    funs(as.numeric)
+  ) %>%
+  mutate_at(vars(
+    Study,
+    Author,
+    Parameter,
+    Group,
+    FunctionalGroup,
+    Species,
+    Classification.STUDY,
+    Control,
+    Treatment,
+    End..Y.N.,
+    Experiment,
+    Country,
+    Location,
+    Feature,
+    Orientation_Detail
+    ),
+    funs(as.factor))
+
+str(meta)
+
+```
+
+Analysing only studies from AUS
+#excludes those with Classification==unclear|unassigned|cryptogenic
+```{r}
+#exclude species with an unclear Classification
+meta_NvsNIS_Global <- meta %>%
+        filter(Classification.STUDY=="NIS" | Classification.STUDY=="N")
+
+
+meta <- meta_NvsNIS_Global
+meta<- meta %>% droplevels() #gets rid of parameters and groups not present anymore
+
+meta_AUS <- meta %>%
+        filter(Country=="Australia")
+
+meta <- meta_AUS
+meta<- meta %>% droplevels() #gets rid of parameters and groups not present anymore
+
+
+#combine all algae
+levels(meta$FunctionalGroup)
+
+levels(meta$FunctionalGroup) <- c("Anthozoans","Ascidians", "Barnacles", "Bivalves", "Algae", "Bryozoans", "Algae", "Polychaetes", "Poriferans", "Algae")
+
+levels(meta$FunctionalGroup)
+```
+
+
+## Creating reference columns
+
+Checking that there are sufficient identifier and reference columns for our random 
+effects:
+
+* Adding  **Effect ID** which represents each unique datapoint in the database.  
+* **Study** already exists - showing data points which come from the same study.  
+* We also add **experiment ID**, which shows which datapoints come from the same 
+experiment. We do this by grouping by study, location, and other reference columns
+that identify unique experiments within the same study. 
+* We added **Study_Experiment_Duration**, which shows which datapoints come from the same timepoint within one experiment within a study (if they were assessed multiple times). 
+
+These are mostly important for the random effects and independence components of the analysis.
+
+*  We created **Exp_ID**, which shows which datapoints come from the same timepoint within one experiment within a study for each species to calculate a corrected value for N to account for multiple controls for one treatment or multiple treatments per control, whenever present.
+
+```{r}
+# create column with unique data points.. row names essentially
+meta <- rowid_to_column(meta, "Effect_ID")
+meta$Effect_ID <- as.factor(meta$Effect_ID)
+
+meta$Study_Experiment <-
+  paste(meta$Study, meta$Experiment, sep = "_")
+meta$Study_Experiment <-as.factor(meta$Study_Experiment)
+
+meta$Study_Location <-
+  paste(meta$Study, meta$Location, sep = "_")
+meta$Study_Location <-as.factor(meta$Study_Location)
+
+meta$Study_Experiment_Duration <-
+  paste(meta$Study_Experiment, meta$Duration, sep = "_")
+meta$Study_Experiment_Duration <-as.factor(meta$Study_Experiment_Duration)
+
+meta$Feature_Classification <-
+  paste(meta$Feature, meta$Classification.STUDY, sep = "_")
+meta$Feature_Classification <-as.factor(meta$Feature_Classification)
+
+meta$Feature_FunctionalGroup <-
+  paste(meta$Feature, meta$FunctionalGroup, sep = "_")
+meta$Feature_FunctionalGroup <-as.factor(meta$Feature_FunctionalGroup)
+
+meta$FunctionalGroup_Classification <-
+  paste(meta$FunctionalGroup, meta$Classification.STUDY, sep = "_")
+meta$FunctionalGroup_Classification <-as.factor(meta$FunctionalGroup_Classification)
+
+meta$Feature_FunctionalGroup_Classification <-
+  paste(meta$Feature, meta$FunctionalGroup_Classification, sep = "_")
+meta$Feature_FunctionalGroup_Classification <-as.factor(meta$Feature_FunctionalGroup_Classification)
+
+#need an ID to define experiment groupings
+Exp_ID <- meta %>%
+  group_by(Study,
+           Study_Experiment,
+           Species,
+           Study_Experiment_Duration,
+           Feature) %>%
+  summarise(num_instances = n())
+
+# row ID for exp number
+Exp_ID <- rowid_to_column(Exp_ID, "Exp_ID")
+# now join back to main dataset based based on this number:
+meta <- left_join(meta,
+                  Exp_ID,
+                  by = c("Study",
+                         "Study_Experiment",
+                         "Species",
+                         "Study_Experiment_Duration",
+                         "Feature"))
+meta$Exp_ID <- as.factor(meta$Exp_ID)
+
+rm(Exp_ID) # leaving in for now, to check numbers
+
+```
+
+
+##Note on definitions:
+
+**Parameter:** these are  
+```{r}
+levels(meta$Parameter)
+```
+
+**FunctionalGroup:** these are substrates that are considered ARTIFICIAL and are either completely manufactured or have undergone a some kind of transformative process: 
+```{r}
+levels(meta$FunctionalGroup)
+```
+
+
+**Number of datapoints per group
+```{r}
+table(meta$Classification.AUS)
+table(meta$FunctionalGroup)
+```
+
+
+##Dealing with zeros
+
+The method wer're using for ESCALC - the ratio or means, cannot handle zeros in the denominator/numerator as this affects the results (not sure if they're 
+skipped or create NANs).
+
+Zeros are replaced with values slightly smaller with the lowest mean and SDs for both control and treatment.
+This is done separately for density and percentage cover due to the different distributions.
+
+*Values for controls and treatments are the same due to some experiments having a crossed design (assessing multiple features) and treatments for one feature are used as controls in another feature*
+
+```{r}
+#Density data
+meta_abund <- meta %>%
+  filter(Parameter =="Abundance")
+
+#get lowest mean and lowest SDs
+
+min(meta_abund[,7][which(meta_abund[,7]>0)]) #control
+min(meta_abund[,11][which(meta_abund[,11]>0)]) #treatment
+#-> 0.125 smallest value -> use 0.120 to replace zeros
+min(meta_abund[,10][which(meta_abund[,10]>0)]) #control
+min(meta_abund[,14][which(meta_abund[,14]>0)]) #treatment
+#-> 0.3535534 smallest value -> use 0.30 to replace zeros
+
+#add value slightly smaller than lowest mean and sd where there's a zero
+meta_abund$MeanTreatment[meta_abund$MeanTreatment == 0] <- 0.120 
+meta_abund$MeanControl[meta_abund$MeanControl == 0] <- 0.120 
+meta_abund$SDTreatment[meta_abund$SDTreatment == 0] <- 0.30 
+meta_abund$SDControl[meta_abund$SDControl == 0] <- 0.30 
+
+meta_cov <- meta %>%
+  filter(Parameter =="PercentageCover")
+
+#get lowest mean and lowest SDs
+min(meta_cov[,7][which(meta_cov[,7]>0)]) #control
+min(meta_cov[,11][which(meta_cov[,11]>0)]) #treatment
+#-> 0.08264463 smallest value -> use 0.075 to replace zeros
+min(meta_cov[,10][which(meta_cov[,10]>0)]) #control
+min(meta_cov[,14][which(meta_cov[,14]>0)]) #treatment
+#-> 0.184799 smallest value -> use 0.180 to replace zeros
+
+#add value slightly smaller than lowest mean and sd where there's a zero
+meta_cov$MeanTreatment[meta_cov$MeanTreatment == 0] <- 0.075 
+meta_cov$MeanControl[meta_cov$MeanControl == 0] <- 0.075 
+meta_cov$SDTreatment[meta_cov$SDTreatment == 0] <- 0.180 
+meta_cov$SDControl[meta_cov$SDControl == 0] <- 0.180 
+
+#putting meta back together
+meta <- rbind(meta_abund, meta_cov)
+```
+
+
+##Check for sufficient replication -> make reduced datasets otherwise
+
+For later in the code, these levels with < 5 data points or coming from <3 experiments need to be dropped
+
+```{r, results='hide'}
+
+# 3-way interaction
+#checking how many studies are in each level:
+Feature_FunctionalGroup_Classification_levels<-levels(meta$Feature_FunctionalGroup_Classification)
+Feature_FunctionalGroup_Classification_EffectID<- map(Feature_FunctionalGroup_Classification_levels, ~length(unique(meta$Effect_ID[meta$Feature_FunctionalGroup_Classification ==.])))
+Feature_FunctionalGroup_Classification_Study_Experiment<- map(Feature_FunctionalGroup_Classification_levels, ~length(unique(meta$Study_Experiment[meta$Feature_FunctionalGroup_Classification ==.])))
+Feature_FunctionalGroup_Classification_Study_Location<- map(Feature_FunctionalGroup_Classification_levels, ~length(unique(meta$Study_Location[meta$Feature_FunctionalGroup_Classification ==.])))
+
+#
+meta_reduced <- subset(meta, Feature_FunctionalGroup_Classification!="Movement_Anthozoans_N") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Movement_Bivalves_NIS") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Movement_Poriferans_N") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Orientation_Algae_N") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Orientation_Algae_NIS") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Orientation_Anthozoans_N") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Orientation_Ascidians_N") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Orientation_Ascidians_NIS") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Orientation_Barnacles_N") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Orientation_Barnacles_NIS") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Orientation_Bivalves_N") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Algae_NIS") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Anthozoans_N") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Ascidians_NIS") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Barnacles_N") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Barnacles_NIS") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Bivalves_N") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Bryozoans_N") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Bryozoans_NIS") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Polychaetes_N") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Polychaetes_NIS") 
+meta_reduced<- meta_reduced %>% droplevels() 
+
+
+```
+
+## Accounting for non-independence
+
+Partitioning the "n"
+
+Accounting for instances where the experimental error is shared between datapoints 
+rather than being independent is an important step. This is because the meta-regression 
+models we're using assume independence, unless told otherwise.
+
+Here we partition the replicates of the controls and treatments depending on whether
+they are shared or not.
+
+* when grouped by control.. how many treatment TYPES are there? (ie cases of shared 
+treatments) 
+* when grouped by treatment.. how many control TYPES are there? (ie cases of shared 
+controls) 
+
+
+Partitioning based on Control: 
+```{r}
+#Adding in a new column to the dataset for the reduced controls per treatment
+
+meta <- meta %>%
+  group_by(Exp_ID) %>%
+  mutate(unique_types = n_distinct(Treatment))
+
+# Partition the N based on these results:
+meta <- meta %>%
+  mutate(reducedReplicatesControl = (ReplicatesControl / unique_types))
+
+
+
+meta_reduced <- meta_reduced %>%
+  group_by(Exp_ID) %>%
+  mutate(unique_types = n_distinct(Treatment))
+
+# Partition the N based on these results:
+meta_reduced <- meta_reduced %>%
+  mutate(reducedReplicatesControl = (ReplicatesControl / unique_types))
+
+
+```
+
+Partitioning based on Treatment: 
+```{r}
+#Adding in a new column to the dataset for the reduced replicates per control
+
+meta <- meta %>%
+  group_by(Exp_ID) %>%
+  mutate(unique_types = n_distinct(Control))
+
+# Partition the N based on these results:
+meta <- meta %>%
+  mutate(reducedReplicatesTreatment = (ReplicatesTreatment / unique_types))
+
+
+meta_reduced <- meta_reduced %>%
+  group_by(Exp_ID) %>%
+  mutate(unique_types = n_distinct(Control))
+
+# Partition the N based on these results:
+meta_reduced <- meta_reduced %>%
+  mutate(reducedReplicatesTreatment = (ReplicatesTreatment / unique_types))
+
+
+```
+
+
+
+
+# ESCALC
+Have now switched Control and Treatment to ensure the 
+Orchard plot is still inline with the standard meta plots.
+This means we now have: 
+
+Group 1 = TREATMENT - Artificial substrates
+Group 2 = CONTROL - Natural substrates
+(Therefore +ve results favour treatments, and -ve results favour control)
+
+Calculating the effect sizes and outcome measures.
+We're using the Risk Ratio - in the form of Ratio of Means,
+and we will take the log of this ratio - centered around zero. 
+
+```{r, results='hide'}
+
+# conditional function to get lnRR
+lnRR <-  function(CMean, CSD, CN, EMean, ESD, EN, Parameter){
+   
+  if(Parameter == "PercentageCover"){
+  
+  
+  # transform proportion mean value
+      asin_trans <- function(proportion) {
+        trans <- asin(sqrt(proportion))
+        trans
+      }
+
+      E_SD <- sqrt(((ESD)^2/1000) / (4 * (EMean/100) * (1 - (EMean/100))))
+      C_SD <- sqrt(((CSD)^2/1000) / (4 * (CMean/100) * (1 - (CMean/100))))
+
+      E_proportion <- asin_trans(EMean/100)
+      C_proportion <- asin_trans(CMean/100)
+
+      # calculate lnRR and lnRR variance
+      yi <- log(E_proportion / C_proportion)
+      vi <- (E_SD)^2 * (1 / (E_proportion^2 * EN)) +
+        (C_SD)^2 * (1 / (C_proportion^2 * CN))
+  }else {
+    
+    yi<-log( EMean / CMean)
+    vi <- CSD^2 / (CN * CMean^2) + ESD^2 / (EN * EMean^2)
+  }
+      
+  invisible(data.frame(yi,vi))
+      
+}
+
+meta.list <- list(
+  CMean = meta$MeanControl,
+  CSD = meta$SDControl,
+  CN = meta$reducedReplicatesControl,
+  EMean = meta$MeanTreatment,
+  ESD = meta$SDTreatment,
+  EN = meta$reducedReplicatesTreatment,
+  Parameter = meta$Parameter)
+
+# applying 
+meta.lnRR <-pmap_df(meta.list, lnRR)
+
+meta<- cbind(meta, meta.lnRR)
+
+meta_reduced.list <- list(
+  CMean = meta_reduced$MeanControl,
+  CSD = meta_reduced$SDControl,
+  CN = meta_reduced$reducedReplicatesControl,
+  EMean = meta_reduced$MeanTreatment,
+  ESD = meta_reduced$SDTreatment,
+  EN = meta_reduced$reducedReplicatesTreatment,
+  Parameter = meta_reduced$Parameter)
+
+meta_reduced.lnRR <-pmap_df(meta_reduced.list, lnRR)
+
+meta_reduced<- cbind(meta_reduced, meta_reduced.lnRR)
+
+
+
+# # cehcking data
+# 
+# median(meta$SDTreatment/meta$MeanTreatment)
+# median(meta$SDTreatment[meta$Parameter == "PercentageCover"] / 
+#        meta$MeanTreatment[meta$Parameter == "PercentageCover"])
+# median(meta$SDTreatment[meta$Parameter == "Abundance"] / 
+#        meta$MeanTreatment[meta$Parameter == "Abundance"])
+# 
+# median(meta$vi[meta$Parameter == "Abundance"])
+# median(meta$vi[meta$Parameter == "PercentageCover"])
+
+
+```
+
+# VCV MATRICES
+To account for multiple timepoints coming from the same tile/experiment
+this calculates a matrix which is used as "V" in the models that follow.
+For the models the "Yi" comes from Escalc, and the "VI" will come from this
+V. 
+
+This VCV matrix uses **Study** as a clustering parameter, which will then account for all 
+non-independence in the experiments within study - in this case that includes, 
+repeated measures sampling **AND** multiple measures from the same experiment
+(measurement parameters). [which is only a problem for the "All" models].
+
+```{r, include=TRUE}
+V <-
+  impute_covariance_matrix(
+    vi = meta$vi,
+    cluster = meta$Study,
+    r = 0.5,
+    return_list = F
+  )
+
+
+#This is just a test of the vcv functionality.
+# The vcv is calculated for each model or group at the modelling stage.
+V.check <-
+  impute_covariance_matrix(
+    vi = meta$vi,
+    cluster = meta$Study,
+    r = 0.5,
+    return_list = F
+  )
+
+# using the return_list = F option is not recommended when the elements aren't
+# ordered... which could cause issues, there's a check to see that they are correct.
+
+#all.equal(meta$vi, diag(V.check))
+
+
+V_reduced <-
+  impute_covariance_matrix(
+    vi = meta_reduced$vi,
+    cluster = meta_reduced$Study,
+    r = 0.5,
+    return_list = F
+  )
+
+
+#This is just a test of the vcv functionality.
+# The vcv is calculated for each model or group at the modelling stage.
+V_reduced.check <-
+  impute_covariance_matrix(
+    vi = meta_reduced$vi,
+    cluster = meta_reduced$Study,
+    r = 0.5,
+    return_list = F
+  )
+
+# using the return_list = F option is not recommended when the elements aren't
+# ordered... which could cause issues, there's a check to see that they are correct.
+
+#all.equal(meta_reduced$vi, diag(V_reduced.check))
+
+
+```
+
+
+# PHYLOGENETIC TREE
+Created phylogenetic tree from the rotl package examples and using the 
+tree of life database: https://tree.opentreeoflife.org 
+```{r}
+
+unique(meta$Species)
+#Having both a genus and a species of the same genus in the dataset does not work, as the one to genus name is excluded from the tree. To be most conservative, species are renamed to genus level when this occurs.
+#correct names-B. magnicoecum does not exist, as unsure which one to pick- just genus name did not work-included as B. anceps to make it work.
+#Updated names and synomised names were used when needed.
+
+meta$Species <-
+  sub("Botrylloides magnicoecum", "Botrylloides anceps", meta$Species)
+meta$Species <-
+  sub("Pomatoceros triqueter", "Spirobranchus triqueter", meta$Species)
+meta$Species <-
+  sub("Schyzoporella maulina", "Schizoporella maulina", meta$Species)
+meta$Species <-
+  sub("Diplosolen arctica", "Diplosolen obelia", meta$Species) #synonym for D. antartica according to Atlas of Artic Bryozoa
+meta$Species <-
+  sub("Bugula neritina", "Bugula", meta$Species)
+meta$Species <-
+  sub("Bugula stolonifera", "Bugula", meta$Species)
+meta$Species <-
+  sub("Bugulina flabellata", "Bugula", meta$Species)
+meta$Species <-
+  sub("Bugula flabellata", "Bugula", meta$Species)
+meta$Species <-
+  sub("Bugula", "Bugula (genus in Opisthokonta)", meta$Species)
+meta$Species <-
+  sub("Didemnum vexillum", "Didemnum", meta$Species)
+meta$Species <-
+  sub("Galeolaria caespitosa", "Galeolaria", meta$Species)
+meta$Species <-
+  sub("Bowerbankia gracilis", "Amathia", meta$Species)
+meta$Species <-
+  sub("Bowerbankia", "Amathia", meta$Species)
+meta$Species <-
+  sub("Amathia gracilis", "Amathia", meta$Species)
+meta$Species <-
+  sub("Amathia", "Amathia (genus in Lophotrochozoa)", meta$Species)
+meta$Species <-
+  sub("Diplosoma listerianum", "Diplosoma", meta$Species)
+meta$Species <-
+  sub("Diplosoma longinquum", "Diplosoma", meta$Species)
+meta$Species <-
+  sub("Diplosoma", "Diplosoma (genus in Bilateria)", meta$Species)
+meta$Species <-
+  sub("Microporella umbracula", "Microporella coronata", meta$Species)
+meta$Species <-
+  sub("Pomatoceros", "Spirobranchus", meta$Species)
+meta$Species <-
+  sub("Spirobranchus taeniata", "Spirobranchus taeniatus", meta$Species)
+meta$Species <-
+  sub("Spirobranchus taeniatus", "Spirobranchus", meta$Species)
+meta$Species <-
+  sub("Spirobranchus triqueter", "Spirobranchus", meta$Species)
+meta$Species <-
+  sub("Zonaria", "Zonaria (genus in subkingdom SAR)", meta$Species)
+meta$Species <-
+  sub("Martensia", "Martensia (genus in kingdom Archaeplastida)", meta$Species)
+meta$Species <-
+  sub("Feldmannia", "Feldmannia (genus in subkingdom SAR)", meta$Species)
+meta$Species <-
+  sub("Hydroides elegans", "Hydroides", meta$Species)
+meta$Species <-
+  sub("Hydroides dirampha", "Hydroides", meta$Species)
+meta$Species <-
+  sub("Ulva lactuca", "Ulva", meta$Species)
+meta$Species <-
+  sub("Saccostrea commercialis", "Saccostrea glomerata", meta$Species)
+meta$Species <-
+  sub("Einhornia crustulenta", "Electra crustulenta", meta$Species)
+meta$Species <-
+  sub("Hippodiplosia obesa", "Schizoporella obesa", meta$Species)
+meta$Species <-
+  sub("Smittina majuscula", "Raymondcia majuscula", meta$Species)
+meta$Species <-
+  sub("Polysiphonia nigrescens", "Polysiphonia fucoides", meta$Species)
+meta$Species <-
+  sub("Rhodomela virgata", "Rhodomela confervoides", meta$Species)
+meta$Species <-
+  sub("Metridium senile", "Metridium dianthus", meta$Species)
+meta$Species <-
+  sub("Conopeum seurati", "Conopeum", meta$Species)
+meta$Species <-
+  sub("Conopeum reticulum", "Conopeum", meta$Species)
+meta$Species <-
+  sub("Obelia species", "Obelia striata", meta$Species) #used as otherwise not working
+meta$Species <-
+  sub("Callopora lineata", "Callopora", meta$Species)
+meta$Species <-
+  sub("Callopora craticula", "Callopora", meta$Species)
+meta$Species <-
+  sub("Tubulipora plumosa", "Tubulipora", meta$Species)
+meta$Species <-
+  sub("Plagioecia patina", "Plagioecia", meta$Species)
+meta$Species <-
+  sub("Stereonephthya cundabilensis", "Stereonephthya cundabiluensis", meta$Species)
+meta$Species <-
+  sub("Nephthea", "Litophyton", meta$Species)
+
+
+
+
+a <- unique(meta$Species)
+a <- as.character(a)
+a
+
+##need internet connection for this part
+taxa <- tnrs_match_names(names = a)
+
+tree <- tol_induced_subtree(ott_ids = ott_id(taxa))
+
+#remove ott ids to match the species ids
+tree$tip.label <-
+  strip_ott_ids(tree$tip.label, remove_underscores = TRUE)
+
+#plot tree
+plot(tree,
+     cex = .8,
+     label.offset = .1,
+     no.margin = TRUE)
+
+tree <- compute.brlen(tree)
+cor <- vcv(tree, cor = T)
+cor #to see the correlations
+
+# adding phylogeny
+meta$Phylogeny <- meta$Species
+
+
+#for reduced dataset
+unique(meta_reduced$Species)
+
+meta_reduced$Species <-
+  sub("Botrylloides magnicoecum", "Botrylloides anceps", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Pomatoceros triqueter", "Spirobranchus triqueter", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Schyzoporella maulina", "Schizoporella maulina", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Diplosolen arctica", "Diplosolen obelia", meta_reduced$Species) #synonym for D. antartica according to Atlas of Artic Bryozoa
+meta_reduced$Species <-
+  sub("Bugula neritina", "Bugula", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Bugula stolonifera", "Bugula", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Bugulina flabellata", "Bugula", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Bugula flabellata", "Bugula", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Bugula", "Bugula (genus in Opisthokonta)", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Didemnum vexillum", "Didemnum", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Galeolaria caespitosa", "Galeolaria", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Bowerbankia gracilis", "Amathia", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Bowerbankia", "Amathia", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Amathia gracilis", "Amathia", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Amathia", "Amathia (genus in Lophotrochozoa)", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Diplosoma listerianum", "Diplosoma", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Diplosoma longinquum", "Diplosoma", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Diplosoma", "Diplosoma (genus in Bilateria)", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Microporella umbracula", "Microporella coronata", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Pomatoceros", "Spirobranchus", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Spirobranchus taeniata", "Spirobranchus taeniatus", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Spirobranchus taeniatus", "Spirobranchus", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Spirobranchus triqueter", "Spirobranchus", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Zonaria", "Zonaria (genus in subkingdom SAR)", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Martensia", "Martensia (genus in kingdom Archaeplastida)", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Feldmannia", "Feldmannia (genus in subkingdom SAR)", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Hydroides elegans", "Hydroides", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Hydroides dirampha", "Hydroides", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Ulva lactuca", "Ulva", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Saccostrea commercialis", "Saccostrea glomerata", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Einhornia crustulenta", "Electra crustulenta", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Hippodiplosia obesa", "Schizoporella obesa", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Smittina majuscula", "Raymondcia majuscula", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Polysiphonia nigrescens", "Polysiphonia fucoides", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Rhodomela virgata", "Rhodomela confervoides", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Metridium senile", "Metridium dianthus", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Conopeum seurati", "Conopeum", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Conopeum reticulum", "Conopeum", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Obelia species", "Obelia striata", meta_reduced$Species) #used as otherwise not working
+meta_reduced$Species <-
+  sub("Callopora lineata", "Callopora", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Callopora craticula", "Callopora", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Tubulipora plumosa", "Tubulipora", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Plagioecia patina", "Plagioecia", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Stereonephthya cundabilensis", "Stereonephthya cundabiluensis", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Nephthea", "Litophyton", meta_reduced$Species)
+
+
+b <- unique(meta_reduced$Species)
+b <- as.character(b)
+b
+
+##need internet connection for this part
+taxa2 <- tnrs_match_names(names = b)
+
+
+tree2 <- tol_induced_subtree(ott_ids = ott_id(taxa2))
+
+#remove ott ids to match the species ids
+tree2$tip.label <-
+  strip_ott_ids(tree2$tip.label, remove_underscores = TRUE)
+
+#plot tree
+plot(tree2,
+     cex = .8,
+     label.offset = .1,
+     no.margin = TRUE)
+
+tree2 <- compute.brlen(tree2)
+cor2 <- vcv(tree2, cor2 = T)
+cor2 #to see the correlations
+
+# adding phylogeny
+meta_reduced$Phylogeny <- meta_reduced$Species
+
+
+```
+
+##How many studies, study locations, experiment for each Feature?
+```{r}
+
+meta_reduced$Feature_Study <-
+  paste(meta_reduced$Feature, meta_reduced$Study, sep = "_")
+meta_reduced$Feature_Study <-as.factor(meta_reduced$Feature_Study)
+
+meta_reduced$Feature_Study_Location <-
+  paste(meta_reduced$Feature, meta_reduced$Study_Location, sep = "_")
+meta_reduced$Feature_Study_Location <-as.factor(meta_reduced$Feature_Study_Location)
+
+meta_reduced$Feature_Study_Experiment <-
+  paste(meta_reduced$Feature_Study, meta_reduced$Experiment, sep = "_")
+meta_reduced$Feature_Study_Experiment <-as.factor(meta_reduced$Feature_Study_Experiment)
+
+meta_reduced$Feature_Study_Experiment_Duration <-
+  paste(meta_reduced$Feature, meta_reduced$Study_Experiment_Duration, sep = "_")
+meta_reduced$Feature_Study_Experiment_Duration <-as.factor(meta_reduced$Feature_Study_Experiment_Duration)
+
+meta_reduced$Feature_Species <-
+  paste(meta_reduced$Feature, meta_reduced$Species, sep = "_")
+meta_reduced$Feature_Species <-as.factor(meta_reduced$Feature_Species)
+
+meta_reduced$Feature_Species_Classification <-
+  paste(meta_reduced$Feature_Species, meta_reduced$Classification.STUDY, sep = "_")
+meta_reduced$Feature_Species_Classification <-as.factor(meta_reduced$Feature_Species_Classification)
+
+levels(meta_reduced$Feature_Study)
+levels(meta_reduced$Feature_Study_Location)
+levels(meta_reduced$Feature_Study_Experiment)
+levels(meta_reduced$Feature_Study_Experiment_Duration)
+levels(meta_reduced$Feature_Species)
+levels(meta_reduced$Feature_Species_Classification)
+```
+
+
+
+#Models
+
+Now we add the models in a stepwise fashion
+
+The overarching method followed is: 
+
+1. Run the most simple version of the model. Without moderators 
+Check the heterogeniety: a significant amount of heterogeneity means that although you may have a main trend in your effect size, there is STILL a lot of unexplained variability in the effect size. Heterogeneity is genrerally caused by the different ways in which studies are undertaken. There is a rule of thumb to use a as a threshold for when to continue/stop. 
+
+2. Add random effects to the model - then check the heterogeneity again. If this    is still significant - you still have a LOT of unexplained variance of your      effect size between data points.
+
+3. Add moderators to your model - do this one by one and in each case you can check the effect on the heterogeniety. Showing that the variability of the main effect was moderated by. The moderators could be useful predictors of the variability in the effect of
+natural vs artificial substrates on the diversity/growth/cover. 
+
+4. Finally add all moderators and random effects into one model and the amount of heterogeneity remaining should NOT be significant. 
+
+
+
+Setting dpi value for plots (lower number to speed up script)
+```{r}
+plot_dpi <- 300
+#suggestions: 320 - retina, 300 - print, 72 - screen
+```
+
+## Simple model
+
+```{r}
+
+rom.simple <- rma.mv(yi, V_reduced, random = list(~ 1|Study,
+                                          ~ 1|Study_Experiment,
+                                          ~ 1|Study_Experiment_Duration,
+                                          ~ 1|Effect_ID,
+                                          ~ 1|Species,
+                                          ~ 1|Phylogeny),
+                                          R = list(Phylogeny = cor2),
+                            method = "REML",
+                            data = meta_reduced,
+                            sparse = TRUE, # makes it quicker to run
+                            control = list(optimizer="optim"))
+
+forest(rom.simple)
+summary(rom.simple)
+
+i2_ml(rom.simple)
+r2_ml(rom.simple)
+
+sum <- summary(rom.simple)
+sum_I2 <- i2_ml(rom.simple)
+sum_R2 <- r2_ml(rom.simple)
+
+res.simple <- data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
+                          beta = as.numeric(sum$beta),
+                          se = as.numeric(sum$se),
+                          percentage_increase_or_decrease_on_treatment = (exp(sum$beta)-1)*100,
+                          real.effect.value = exp(sum$beta),
+                          pval = sum$pval,
+                          ci.lb = sum$ci.lb,
+                          ci.ub = sum$ci.ub,
+                          I2_total = sum_I2[[1]],
+                          I2_study = sum_I2[[2]],
+                          I2_Study_Experiment = sum_I2[[3]],
+                          I2_Study_Experiment_Duration = sum_I2[[4]],
+                          I2_Effect_ID = sum_I2[[5]],
+                          I2_Species = sum_I2[[6]],
+                          I2_Phylogeny = sum_I2[[7]],
+                          R2_marginal_fixed = sum_R2[[1]]*100,
+                          R2_conditional_fixed_random = sum_R2[[2]]*100,
+                          Moderator_significance_stat = sum$QM,
+                          Moderator_significance_pval = sum$QMp,
+                          AIC = rom.simple$fit.stats$REML[3])
+        
+res_simple_df <- bind_rows(res.simple)
+write.csv(res_simple_df, file = "./output/Australia_nozeros/summ_simple.csv")
+
+
+simp_orch <- orchard_plot(rom.simple,  xlab = "lnRR", 
+                          group = "Study_Experiment", data = meta_reduced) +
+  scale_y_discrete(labels = c("Intrcpt" = "Overall")) +
+  theme(
+    text = element_text(size = 12, colour = "black"),
+    axis.text.y = element_text(size = 12, colour = "black")
+  ) +
+      scale_fill_manual(values = c("grey")) + scale_colour_manual(values = c("grey"))+
+  theme(
+    legend.direction = "horizontal",
+    legend.title = element_text(size = 12, colour = "black"),
+    legend.text = element_text(size = 12, colour = "black") 
+  )
+
+simp_orch
+ggsave(simp_orch, file = "./output/Australia_nozeros/simp_orch.tiff", dpi = plot_dpi,width = 10, height = 8)
+
+simp_cat <- caterpillars(rom.simple, xlab = "lnRR", group="Study_Experiment", data=meta_reduced)
+simp_cat
+ggsave(simp_cat, file = "./output/Australia_nozeros/simp_cat.tiff", dpi = plot_dpi)
+```
+
+
+## Adding Mod Parameter 
+testing whether parameter (abundance or percentage cover) has an influence
+
+```{r, results='hide', fig.show='hide'}
+#using reduced dataset where each level comprises of at least 3 experiments
+rom.Parameter <- rma.mv(yi, V_reduced, mods = ~ Parameter - 1,
+                                              random = list(~ 1|Study,
+                                                            ~ 1|Study_Experiment,
+                                                            ~ 1|Study_Experiment_Duration,
+                                                            ~ 1|Effect_ID,
+                                                            ~ 1|Species,
+                                                            ~ 1|Phylogeny),
+                                                           R = list(Phylogeny = cor2),
+                                                           method = "REML",
+                                                           data = meta_reduced,
+                                                           sparse = TRUE, # makes it quicker to run
+                                                           control = list(optimizer ="optim"))
+
+
+sum <- summary(rom.Parameter)
+sum_I2 <- i2_ml(rom.Parameter)
+sum_R2 <- r2_ml(rom.Parameter)
+
+res.Parameter <-data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
+                          beta = as.numeric(sum$beta),
+                          se = as.numeric(sum$se),
+                          percentage_increase_or_decrease_on_Treatment = (exp(sum$beta)-1)*100,
+                          real.effect.value = exp(sum$beta),
+                          pval = sum$pval,
+                          ci.lb = sum$ci.lb,
+                          ci.ub = sum$ci.ub,
+                          I2_total = sum_I2[[1]],
+                          I2_study = sum_I2[[2]],
+                          I2_Effect_ID = sum_I2[[3]],
+                          I2_Species = sum_I2[[4]],
+                          I2_Phylogeny = sum_I2[[5]],
+                          R2_marginal_fixed = sum_R2[[1]]*100,
+                          R2_conditional_fixed_random = sum_R2[[2]]*100,
+                          Moderator_significance_stat = sum$QM,
+                          Moderator_significance_pval = sum$QMp,
+                          AIC = rom.Parameter$fit.stats$REML[3])
+
+
+res_Parameter_df <- bind_rows(res.Parameter)
+write.csv(res_Parameter_df, file = "./output/Australia_nozeros/summ_Parameter.csv")
+
+
+Parameter_orch <-
+  orchard_plot(rom.Parameter, mod = "Parameter", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced) + theme(axis.text.y = element_text(angle = 0, hjust = 1))
+Parameter_orch
+
+ggsave(
+ Parameter_orch,
+  file = "./output/Australia_nozeros/Parameter_orch.tiff",
+  dpi = plot_dpi,
+  width = 10,
+  height = 8
+)
+
+
+Parameter_cat <-
+  caterpillars(rom.Parameter, mod = "Parameter", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced)
+Parameter_cat
+ggsave(Parameter_cat, file = "./output/Australia_nozeros/Parameter_cat.tiff", dpi = plot_dpi)
+
+```
+
+Parameter was not significant and was therefore not further considered in the model.
+
+
+## Adding Mod 3 WAY INTERACTION
+Feature_FunctionalGroup_Classification
+(could not be tested if only location and deployment used as "study" due to insufficient replication)
+
+```{r, results='hide', fig.show='hide'}
+#using reduced dataset where each level comprises of at least 3 experiments
+rom.FeatureFunctionalGroupClassification <- rma.mv(yi, V_reduced, mods = ~ Feature_FunctionalGroup_Classification - 1,
+                                              random = list(~ 1|Study,
+                                                            ~ 1|Study_Experiment,
+                                                            ~ 1|Study_Experiment_Duration,
+                                                            ~ 1|Effect_ID,
+                                                            ~ 1|Species,
+                                                            ~ 1|Phylogeny),
+                                                           R = list(Phylogeny = cor2),
+                                                           method = "REML",
+                                                           data = meta_reduced,
+                                                           sparse = TRUE, # makes it quicker to run
+                                                           control = list(optimizer ="optim"))
+
+
+sum <- summary(rom.FeatureFunctionalGroupClassification)
+sum_I2 <- i2_ml(rom.FeatureFunctionalGroupClassification)
+sum_R2 <- r2_ml(rom.FeatureFunctionalGroupClassification)
+
+res.Feature_FunctionalGroup_Classification <-data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
+                          beta = as.numeric(sum$beta),
+                          se = as.numeric(sum$se),
+                          percentage_increase_or_decrease_on_treatment = (exp(sum$beta)-1)*100,
+                          real.effect.value = exp(sum$beta),
+                          pval = sum$pval,
+                          ci.lb = sum$ci.lb,
+                          ci.ub = sum$ci.ub,
+                          I2_total = sum_I2[[1]],
+                          I2_study = sum_I2[[2]],
+                          I2_study_experiment = sum_I2[[3]],
+                          I2_study_experiment_duration = sum_I2[[4]],
+                          I2_Effect_ID = sum_I2[[5]],
+                          I2_Species = sum_I2[[6]],
+                          I2_Phylogeny = sum_I2[[7]],
+                          R2_marginal_fixed = sum_R2[[1]]*100,
+                          R2_conditional_fixed_random = sum_R2[[2]]*100,
+                          Moderator_significance_stat = sum$QM,
+                          Moderator_significance_pval = sum$QMp,
+                          AIC = rom.FeatureFunctionalGroupClassification$fit.stats$REML[3])
+
+
+res.Feature_FunctionalGroup_Classification_df <- bind_rows(res.Feature_FunctionalGroup_Classification)
+write.csv(res.Feature_FunctionalGroup_Classification_df, file = "./output/Australia_nozeros/summ_res.Feature_FunctionalGroup_Classification.csv")
+
+g_col <- c("#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D")
+
+FeatureFunctionalGroupClassification_orch <-
+  orchard_plot(rom.FeatureFunctionalGroupClassification, mod = "Feature_FunctionalGroup_Classification", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced) +  
+  scale_fill_manual(values = g_col) + scale_colour_manual(values = g_col) + 
+  theme(axis.text.y = element_text(hjust = 0.95, angle=0)) +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.text.y = element_text(size = 12))
+FeatureFunctionalGroupClassification_orch
+  
+ggsave(
+ FeatureFunctionalGroupClassification_orch,
+  file = "./output/Australia_nozeros/FeatureFunctionalGroupClassification_orch.tiff",
+  dpi = plot_dpi,
+  width = 10,
+  height = 8
+)
+
+
+FeatureFunctionalGroupClassification_cat <-
+  caterpillars(rom.FeatureFunctionalGroupClassification, mod = "Feature_FunctionalGroup_Classification", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced)
+FeatureFunctionalGroupClassification_cat
+ggsave(FeatureFunctionalGroupClassification_cat, file = "./output/Australia_nozeros/FeatureFunctionalGroupClassification_cat.tiff", dpi = plot_dpi)
+
+
+table(meta_reduced$Feature_FunctionalGroup_Classification)
+contrast_FeatureFunctionalGroupClassification <- summary(glht(
+  rom.FeatureFunctionalGroupClassification,
+  linfct = c(
+    "Feature_FunctionalGroup_ClassificationMovement_Algae_N - Feature_FunctionalGroup_ClassificationMovement_Algae_NIS = 0",
+    "Feature_FunctionalGroup_ClassificationMovement_Ascidians_N - Feature_FunctionalGroup_ClassificationMovement_Ascidians_NIS = 0",
+    "Feature_FunctionalGroup_ClassificationMovement_Barnacles_N - Feature_FunctionalGroup_ClassificationMovement_Barnacles_NIS = 0",
+    "Feature_FunctionalGroup_ClassificationMovement_Bryozoans_N - Feature_FunctionalGroup_ClassificationMovement_Bryozoans_NIS = 0",
+    "Feature_FunctionalGroup_ClassificationMovement_Polychaetes_N - Feature_FunctionalGroup_ClassificationMovement_Polychaetes_NIS = 0",
+        "Feature_FunctionalGroup_ClassificationOrientation_Bryozoans_N - Feature_FunctionalGroup_ClassificationOrientation_Bryozoans_NIS = 0",
+    "Feature_FunctionalGroup_ClassificationOrientation_Polychaetes_N - Feature_FunctionalGroup_ClassificationOrientation_Polychaetes_NIS = 0"
+  )
+))
+
+contrasts_list <- mget(ls(pattern = "^contrast_+"))
+summary(contrasts_list)
+
+con_df <- map_df(contrasts_list, ~ broom::tidy(.x), .id = "names")
+
+#save
+write.csv(con_df, file = "./output/Australia_nozeros/contrasts_FeatureFunctionalGroupClassification.csv")
+```
+
+
+## Adding Mod FEATURE:TAXONOMIC GROUP
+```{r, results='hide', fig.show='hide'}
+#using reduced dataset where each level comprises of at least 3 experiments
+rom.FeatureFunctionalGroup <- rma.mv(yi, V_reduced, mods = ~ Feature_FunctionalGroup - 1,
+                                              random = list(~ 1|Study,
+                                                            ~ 1|Study_Experiment,
+                                                            ~ 1|Study_Experiment_Duration,
+                                                            ~ 1|Effect_ID,
+                                                            ~ 1|Species,
+                                                            ~ 1|Phylogeny),
+                                                           R = list(Phylogeny = cor2),
+                                                           method = "REML",
+                                                           data = meta_reduced,
+                                                           sparse = TRUE, # makes it quicker to run
+                                                           control = list(optimizer ="optim"))
+
+
+sum <- summary(rom.FeatureFunctionalGroup)
+sum_I2 <- i2_ml(rom.FeatureFunctionalGroup)
+sum_R2 <- r2_ml(rom.FeatureFunctionalGroup)
+
+res.FeatureFunctionalGroup <-data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
+                          beta = as.numeric(sum$beta),
+                          se = as.numeric(sum$se),
+                          percentage_increase_or_decrease_on_treatment = (exp(sum$beta)-1)*100,
+                          real.effect.value = exp(sum$beta),
+                          pval = sum$pval,
+                          ci.lb = sum$ci.lb,
+                          ci.ub = sum$ci.ub,
+                          I2_total = sum_I2[[1]],
+                          I2_study = sum_I2[[2]],
+                          I2_study_experiment = sum_I2[[3]],
+                          I2_study_experiment_duration = sum_I2[[4]],
+                          I2_Effect_ID = sum_I2[[5]],
+                          I2_Species = sum_I2[[6]],
+                          I2_Phylogeny = sum_I2[[7]],
+                          R2_marginal_fixed = sum_R2[[1]]*100,
+                          R2_conditional_fixed_random = sum_R2[[2]]*100,
+                          Moderator_significance_stat = sum$QM,
+                          Moderator_significance_pval = sum$QMp,
+                          AIC = rom.FeatureFunctionalGroup$fit.stats$REML[3])
+
+
+res_FeatureFunctionalGroup_df <- bind_rows(res.FeatureFunctionalGroup)
+write.csv(res_FeatureFunctionalGroup_df, file = "./output/Australia_nozeros/summ_FeatureFunctionalGroup.csv")
+
+g_col <- c("#1C9E77","#D95F02","#7570B3","#E6AB01","#4575B4","#E6AB01","#4575B4")
+
+FeatureFunctionalGroup_orch <-
+  orchard_plot(rom.FeatureFunctionalGroup, mod = "Feature_FunctionalGroup", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced) + 
+  scale_fill_manual(values = g_col) + scale_colour_manual(values = g_col) +
+  theme(axis.text.y = element_text(hjust = 0.95, angle=0)) +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        text = element_text(size = 12),
+        axis.text.y = element_text(size = 12))
+FeatureFunctionalGroup_orch
+
+ggsave(
+ FeatureFunctionalGroup_orch,
+  file = "./output/Australia_nozeros/FeatureFunctionalGroup_orch.tiff",
+  dpi = plot_dpi,
+  width = 10,
+  height = 8
+)
+
+
+FeatureFunctionalGroup_cat <-
+  caterpillars(rom.FeatureFunctionalGroup, mod = "Feature_FunctionalGroup", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced)
+FeatureFunctionalGroup_cat
+ggsave(FeatureFunctionalGroup_cat, file = "./output/Australia_nozeros/FeatureFunctionalGroup_cat.tiff", dpi = plot_dpi)
+```
+
+
+## Adding Mod Year (timeline bias)
+```{r}
+
+# Year
+rom.Year <- rma.mv(yi, V_reduced, mods = ~ Year, 
+                                              random = list(~ 1|Study,
+                                                            ~ 1|Study_Experiment,
+                                                            ~ 1|Study_Experiment_Duration,
+                                                            ~ 1|Effect_ID,
+                                                            ~ 1|Species,
+                                                            ~ 1|Phylogeny),
+                                            R = list(Phylogeny = cor2),
+                              method="REML",
+                              data=meta_reduced,
+                   sparse = TRUE, # makes it quicker to run
+                              control = list(optimizer="optim"))
+
+
+forest(rom.Year)
+summary(rom.Year)
+
+sum <- summary(rom.Year)
+sum_I2 <- i2_ml(rom.Year)
+sum_R2 <- r2_ml(rom.Year)
+
+res.Year <- data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
+                          beta = as.numeric(sum$beta),
+                          se = as.numeric(sum$se),
+                          percentage_increase_or_decrease_on_treatment = (exp(sum$beta)-1)*100,
+                          real.effect.value = exp(sum$beta),
+                          pval = sum$pval,
+                          ci.lb = sum$ci.lb,
+                          ci.ub = sum$ci.ub,
+                          I2_total = sum_I2[[1]],
+                          I2_study = sum_I2[[2]],
+                          I2_study_experiment = sum_I2[[3]],
+                          I2_study_experiment_duration = sum_I2[[4]],
+                          I2_Effect_ID = sum_I2[[5]],
+                          I2_Species = sum_I2[[6]],
+                          I2_Phylogeny = sum_I2[[7]],
+                          R2_marginal_fixed = sum_R2[[1]]*100,
+                          R2_conditional_fixed_random = sum_R2[[2]]*100,
+                          Moderator_significance_stat = sum$QM,
+                          Moderator_significance_pval = sum$QMp,
+                          AIC = rom.Year$fit.stats$REML[3])
+
+res_Year_df <- bind_rows(res.Year)
+write.csv(res_Year_df, file = "./output/Australia_nozeros/summ_Year.csv")
+
+
+#moatt et al one moderator example.. 
+forest(x=c(rom.Year$b),sei=c(rom.Year$se), ci.lb=c(rom.Year$ci.lb), ci.ub=c(rom.Year$ci.ub),xlab=NULL,psize=2,cex=1.4,slab=c("Int", "Year"),  alim=c(-3.5,3.5))
+
+```
+
+## Adding Mod ALL MODERATORS
+```{r}
+rom.All <- rma.mv( yi, V_reduced, mods = ~ Feature_FunctionalGroup_Classification +
+                                           Year,
+                                              random = list(~ 1|Study,
+                                                            ~ 1|Study_Experiment,
+                                                            ~ 1|Study_Experiment_Duration,
+                                                            ~ 1|Effect_ID,
+                                                            ~ 1|Species,
+                                                            ~ 1|Phylogeny),
+                                        R = list(Phylogeny = cor2),
+                          method = "REML",
+                          data = meta_reduced,
+                   sparse = TRUE, # makes it quicker to run
+                          control = list(optimizer="optim"))
+
+forest(rom.All)
+sum <- summary(rom.All)
+sum_I2 <- i2_ml(rom.All)
+sum_R2 <- r2_ml(rom.All)
+
+
+res.All <- data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
+                          beta = as.numeric(sum$beta),
+                          se = as.numeric(sum$se),
+                          percentage_increase_or_decrease_on_treatment = (exp(sum$beta)-1)*100,
+                          real.effect.value = exp(sum$beta),
+                          pval = sum$pval,
+                          ci.lb = sum$ci.lb,
+                          ci.ub = sum$ci.ub,
+                          I2_total = sum_I2[[1]],
+                          I2_study = sum_I2[[2]],
+                          I2_study_experiment = sum_I2[[3]],
+                          I2_study_experiment_duration = sum_I2[[4]],
+                          I2_Effect_ID = sum_I2[[5]],
+                          I2_Species = sum_I2[[6]],
+                          I2_Phylogeny = sum_I2[[7]],
+                          R2_marginal_fixed = sum_R2[[1]]*100,
+                          R2_conditional_fixed_random = sum_R2[[2]]*100,
+                          Moderator_significance_stat = sum$QM,
+                          Moderator_significance_pval = sum$QMp,
+                          AIC = rom.All$fit.stats$REML[3])
+
+res.All_df <- bind_rows(res.All)
+write.csv(res.All_df, file = "./output/Australia_nozeros/summ_All.csv")
+```
+
+
+
+## Publication bias
+
+This is important for testing whether only significant results were published.If this s the case, the results can be skewed in favour of significnat results and create false positives or negatvies - ie you're not getting the full picture. This can be tested visaully using a Funnel plot and then quantitatively using a trim and fill method. Both of the methods assume independence between effect  sizes. If this is not the case, then the residuals from the full model can be used. 
+
+Funnel plot shows the effect size on the x axis and a measure of precision of the observed effect size on the y axis. 
+
+funnel() has std error on y by default. 
+
+Only significant moderators included.
+
+###Funnel Plots
+```{r}
+
+jpeg("./output/Australia_nozeros/funnel_simple.jpg",
+     width = 600,
+     height = 600)
+par(cex = 1.4)
+
+funnel(
+  rom.simple,
+  yaxis = "sei",
+  level = c(90, 95, 99),
+  shade = c("white",
+            "gray55", "gray75"),
+  refline = 0,
+  legend = TRUE
+)
+dev.off()
+
+
+jpeg("./output/Australia_nozeros/funnel_All_sign.jpg",
+     width = 600,
+     height = 600)
+par(cex = 1.4)
+funnel(
+  rom.FeatureFunctionalGroupClassification,
+  yaxis = "sei",
+  level = c(90, 95, 99),
+  shade = c("white",
+            "gray55", "gray75"),
+  refline = 0,
+  legend = TRUE
+)
+dev.off()
+
+```
+
+### Eggers Regression (significance of publication bias)
+
+```{r}
+
+### Eggers regression to test significance of publication bias (no intercept)
+# testing whether any asymmetries in the funnel plots are significant
+
+egger_reg_simple <- rma.mv (yi, V_reduced, mods = ~sqrt(vi), 
+                                              random = list(~ 1|Study,
+                                                            ~ 1|Study_Experiment,
+                                                            ~ 1|Study_Experiment_Duration,
+                                                            ~ 1|Effect_ID,
+                                                            ~ 1|Species,
+                                                            ~ 1|Phylogeny),
+                                                 R = list(Phylogeny = cor2),
+                                   method="REML",
+                                   data=meta_reduced,
+                            sparse = TRUE, # makes it quicker to run
+                                   control = list(optimizer="optim"))
+
+summary(egger_reg_simple)
+
+# Model Results:
+# 
+#           estimate      se     zval    pval    ci.lb   ci.ub    
+# intrcpt     0.3721  0.2873   1.2949  0.1953  -0.1911  0.9352    
+# sqrt(vi)   -0.1201  0.2812  -0.4272  0.6692  -0.6713  0.4311    
+# 
+# ---
+# Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+
+egger_reg_All.sign <- rma.mv (yi, V_reduced, mods = ~sqrt(vi) +
+                                Feature_FunctionalGroup_Classification , 
+                                              random = list(~ 1|Study,
+                                                            ~ 1|Study_Experiment,
+                                                            ~ 1|Study_Experiment_Duration,
+                                                            ~ 1|Effect_ID,
+                                                            ~ 1|Species,
+                                                            ~ 1|Phylogeny),
+                                                 R = list(Phylogeny = cor2),
+                                   method="REML",
+                                   data=meta_reduced,
+                            sparse = TRUE, # makes it quicker to run
+                                   control = list(optimizer="optim"))
+
+summary(egger_reg_All.sign)
+
+# Model Results:
+# 
+#                                                                    estimate      se     zval    pval    ci.lb   ci.ub     
+# intrcpt                                                              0.0710  0.3555   0.1998  0.8416  -0.6258  0.7678     
+# sqrt(vi)                                                            -0.1382  0.2824  -0.4894  0.6246  -0.6916  0.4152     
+# Feature_FunctionalGroup_ClassificationMovement_Algae_NIS             0.0054  0.3047   0.0176  0.9859  -0.5919  0.6026     
+# Feature_FunctionalGroup_ClassificationMovement_Ascidians_N           0.7975  0.5438   1.4665  0.1425  -0.2683  1.8633     
+# Feature_FunctionalGroup_ClassificationMovement_Ascidians_NIS         0.9136  0.3451   2.6471  0.0081   0.2372  1.5900  ** 
+# Feature_FunctionalGroup_ClassificationMovement_Barnacles_N           0.5661  0.3446   1.6428  0.1004  -0.1093  1.2416     
+# Feature_FunctionalGroup_ClassificationMovement_Barnacles_NIS         0.7535  0.5043   1.4941  0.1351  -0.2349  1.7419     
+# Feature_FunctionalGroup_ClassificationMovement_Bryozoans_N          -0.0435  0.3661  -0.1187  0.9055  -0.7610  0.6741     
+# Feature_FunctionalGroup_ClassificationMovement_Bryozoans_NIS         0.0418  0.3026   0.1381  0.8902  -0.5513  0.6349     
+# Feature_FunctionalGroup_ClassificationMovement_Polychaetes_N        -0.0276  0.4761  -0.0579  0.9538  -0.9607  0.9056     
+# Feature_FunctionalGroup_ClassificationMovement_Polychaetes_NIS      -0.2305  0.3835  -0.6010  0.5478  -0.9821  0.5212     
+# Feature_FunctionalGroup_ClassificationOrientation_Bryozoans_N        0.3441  0.5017   0.6859  0.4928  -0.6392  1.3274     
+# Feature_FunctionalGroup_ClassificationOrientation_Bryozoans_NIS     -0.0033  0.4961  -0.0067  0.9947  -0.9757  0.9691     
+# Feature_FunctionalGroup_ClassificationOrientation_Polychaetes_N      0.7422  0.5283   1.4047  0.1601  -0.2933  1.7777     
+# Feature_FunctionalGroup_ClassificationOrientation_Polychaetes_NIS    0.2933  0.5584   0.5252  0.5995  -0.8012  1.3878     
+# 
+# ---
+# Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+```
+

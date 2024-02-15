@@ -1,0 +1,72 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+```{r}
+
+
+#### Libraries
+library(lattice)
+library(ggmap)
+library(sp)
+library(rasterVis)
+library(maptools)
+library(rgdal)
+library(rgeos)
+library(raster)
+library(classInt)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(terra)
+library(sf)
+library(cowplot)
+library(ggrepel)
+library(ggspatial)
+library(libwgeom)
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+class(world)
+
+ggplot(data = world) +
+    geom_sf()
+
+#### Data 
+Ref <- read.csv("data/Map.csv", header = T)
+
+Ref$newcol <- rep(1,nrow(Ref))
+
+Ref_countries <- Ref %>% group_by(Country) %>%
+  summarise(lat = mean(lat),
+            long = mean(long),
+            number = sum(newcol))
+
+
+p <- ggplot(data = world) +
+geom_sf(color = "black", fill = "grey") +
+  geom_point(data = Ref_countries, aes(x=long, y=lat, size = number), 
+             fill = "steelblue2", colour="black", pch=21, alpha = 0.6) +
+  geom_text(data = Ref_countries, aes(x=long, y=lat, label = number)) +
+  scale_radius(range = c(5,25)) +
+  # coord_cartesian(xlim = c(-180, 180)) +
+  # geom_hline(yintercept=c(-90,90), xlim(-180,180)) +
+  # geom_vline(xintercept=c(-180,180)) +
+  geom_segment(aes(x=-180,xend=180,y=90,yend=90)) +
+  geom_segment(aes(x=-180,xend=-180,y=-90,yend=90)) +
+  geom_segment(aes(x=180,xend=180,y=-90,yend=90)) +
+  theme(legend.position = "none",
+        panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        axis.title = element_blank(),
+        # axis.line = element_line(colour = "black"),
+        panel.border = element_blank())
+p
+```
+

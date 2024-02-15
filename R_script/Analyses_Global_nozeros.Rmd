@@ -44,7 +44,7 @@ library(tidyverse)
 
 ##Read in and tidy data
 ```{r}
-meta<-read.csv("data/Dataset_ Global_nozeros.csv",header=T, fileEncoding="latin1") #read in data
+meta<-read.csv("data/Dataset_Global_nozeros.csv",header=T, fileEncoding="latin1") #read in data
 
 
 names(meta)
@@ -66,7 +66,7 @@ meta <-
     Author,
     Parameter,
     Group,
-    TaxonomicGroup,
+    FunctionalGroup,
     Species,
     Classification.STUDY,
     Control,
@@ -97,11 +97,11 @@ meta<- meta %>% droplevels() #gets rid of parameters and groups not present anym
 
 
 #combine all algae
-levels(meta$TaxonomicGroup)
+levels(meta$FunctionalGroup)
 
-levels(meta$TaxonomicGroup) <- c("Anthozoans","Ascidians", "Barnacles", "Bivalves", "Algae", "Bryozoans", "Algae", "Hydrozoans","Polychaetes", "Poriferans", "Algae")
+levels(meta$FunctionalGroup) <- c("Anthozoans","Ascidians", "Barnacles", "Bivalves", "Algae", "Bryozoans", "Algae", "Hydrozoans","Polychaetes", "Poriferans", "Algae")
 
-levels(meta$TaxonomicGroup)
+levels(meta$FunctionalGroup)
 ```
 
 
@@ -142,17 +142,17 @@ meta$Feature_Classification <-
   paste(meta$Feature, meta$Classification.STUDY, sep = "_")
 meta$Feature_Classification <-as.factor(meta$Feature_Classification)
 
-meta$Feature_TaxonomicGroup <-
-  paste(meta$Feature, meta$TaxonomicGroup, sep = "_")
-meta$Feature_TaxonomicGroup <-as.factor(meta$Feature_TaxonomicGroup)
+meta$Feature_FunctionalGroup <-
+  paste(meta$Feature, meta$FunctionalGroup, sep = "_")
+meta$Feature_FunctionalGroup <-as.factor(meta$Feature_FunctionalGroup)
 
-meta$TaxonomicGroup_Classification <-
-  paste(meta$TaxonomicGroup, meta$Classification.STUDY, sep = "_")
-meta$TaxonomicGroup_Classification <-as.factor(meta$TaxonomicGroup_Classification)
+meta$FunctionalGroup_Classification <-
+  paste(meta$FunctionalGroup, meta$Classification.STUDY, sep = "_")
+meta$FunctionalGroup_Classification <-as.factor(meta$FunctionalGroup_Classification)
 
-meta$Feature_TaxonomicGroup_Classification <-
-  paste(meta$Feature, meta$TaxonomicGroup_Classification, sep = "_")
-meta$Feature_TaxonomicGroup_Classification <-as.factor(meta$Feature_TaxonomicGroup_Classification)
+meta$Feature_FunctionalGroup_Classification <-
+  paste(meta$Feature, meta$FunctionalGroup_Classification, sep = "_")
+meta$Feature_FunctionalGroup_Classification <-as.factor(meta$Feature_FunctionalGroup_Classification)
 
 #need an ID to define experiment groupings
 Exp_ID <- meta %>%
@@ -179,36 +179,6 @@ rm(Exp_ID) # leaving in for now, to check numbers
 
 ```
 
-##How many studies, study locations, experiment for each Feature?
-```{r}
-
-meta$Feature_Study <-
-  paste(meta$Feature, meta$Study, sep = "_")
-meta$Feature_Study <-as.factor(meta$Feature_Study)
-
-meta$Feature_Study_Location <-
-  paste(meta$Feature, meta$Study_Location, sep = "_")
-meta$Feature_Study_Location <-as.factor(meta$Feature_Study_Location)
-
-meta$Feature_Study_Experiment_Duration <-
-  paste(meta$Feature, meta$Study_Experiment_Duration, sep = "_")
-meta$Feature_Study_Experiment_Duration <-as.factor(meta$Feature_Study_Experiment_Duration)
-
-meta$Feature_Species <-
-  paste(meta$Feature, meta$Species, sep = "_")
-meta$Feature_Species <-as.factor(meta$Feature_Species)
-
-meta$Feature_Species_Classification <-
-  paste(meta$Feature_Species, meta$Classification.STUDY, sep = "_")
-meta$Feature_Species_Classification <-as.factor(meta$Feature_Species_Classification)
-
-levels(meta$Feature_Study)
-levels(meta$Feature_Study_Location)
-levels(meta$Feature_Study_Experiment_Duration)
-levels(meta$Feature_Species)
-levels(meta$Feature_Species_Classification)
-```
-
 
 ##Note on definitions:
 
@@ -217,16 +187,16 @@ levels(meta$Feature_Species_Classification)
 levels(meta$Parameter)
 ```
 
-**TaxonomicGroup:** these are substrates that are considered ARTIFICIAL and are either completely manufactured or have undergone a some kind of transformative process: 
+**FunctionalGroup:** these are substrates that are considered ARTIFICIAL and are either completely manufactured or have undergone a some kind of transformative process: 
 ```{r}
-levels(meta$TaxonomicGroup)
+levels(meta$FunctionalGroup)
 ```
 
 
 **Number of datapoints per group
 ```{r}
 table(meta$Classification.STUDY)
-table(meta$TaxonomicGroup)
+table(meta$FunctionalGroup)
 ```
 
 
@@ -471,69 +441,35 @@ For later in the code, these levels with < 5 data points or coming from <3 exper
 
 ```{r, results='hide'}
 
-#checking how many studies are in each level:
-Classification_levels<-levels(meta$Classification.STUDY)
-Classification_EffectID<- map(Classification_levels, ~length(unique(meta$Effect_ID[meta$Classification.STUDY ==.])))
-Classification_Study_Experiment<- map(Classification_levels, ~length(unique(meta$Study_Experiment[meta$Classification.STUDY ==.])))
-Classification_Study_Location<- map(Classification_levels, ~length(unique(meta$Study_Location[meta$Classification.STUDY ==.])))
-
-#checking how many studies are in each level:
-Feature_Classification_levels<-levels(meta$Feature_Classification)
-Feature_Classification_EffectID<- map(Feature_Classification_levels, ~length(unique(meta$Effect_ID[meta$Feature_Classification ==.])))
-Feature_Classification_Study_Experiment<- map(Feature_Classification_levels, ~length(unique(meta$Study_Experiment[meta$Feature_Classification ==.])))
-Feature_Classification_Study_Location<- map(Feature_Classification_levels, ~length(unique(meta$Study_Location[meta$Feature_Classification ==.])))
-
-#checking how many studies are in each level:
-TaxonomicGroup_Classification_levels<-levels(meta$TaxonomicGroup_Classification)
-TaxonomicGroup_Classification_EffectID<- map(TaxonomicGroup_Classification_levels, ~length(unique(meta$Effect_ID[meta$TaxonomicGroup_Classification ==.])))
-TaxonomicGroup_Classification_Study_Experiment<- map(TaxonomicGroup_Classification_levels, ~length(unique(meta$Study_Experiment[meta$TaxonomicGroup_Classification ==.])))
-TaxonomicGroup_Classification_Study_Location<- map(TaxonomicGroup_Classification_levels, ~length(unique(meta$Study_Location[meta$TaxonomicGroup_Classification ==.])))
-
-#exclude anthozoans and poriferans as no NIS
-meta_reduced <- subset(meta, TaxonomicGroup_Classification!="Anthozoans_N") 
-meta_reduced <- subset(meta_reduced, TaxonomicGroup_Classification!="Poriferans_N") 
-meta_reduced<- meta_reduced %>% droplevels() 
-
-#checking how many studies are in each level:
-Feature_TaxonomicGroup_levels<-levels(meta$Feature_TaxonomicGroup)
-Feature_TaxonomicGroup_EffectID<- map(Feature_TaxonomicGroup_levels, ~length(unique(meta$Effect_ID[meta$Feature_TaxonomicGroup ==.])))
-Feature_TaxonomicGroup_Study_Experiment<- map(Feature_TaxonomicGroup_levels, ~length(unique(meta$Study_Experiment[meta$Feature_TaxonomicGroup ==.])))
-Feature_TaxonomicGroup_Study_Location<- map(Feature_TaxonomicGroup_levels, ~length(unique(meta$Study_Location[meta$Feature_TaxonomicGroup ==.])))
-
-#exclude groups with insufficient datapoints
-meta_reduced2 <- subset(meta, Feature_TaxonomicGroup!="Movement_Anthozoans") 
-meta_reduced2 <- subset(meta_reduced2, Feature_TaxonomicGroup!="Orientation_Poriferans") 
-meta_reduced2 <- subset(meta_reduced2, Feature_TaxonomicGroup!="Orientation_Bivalves") 
-meta_reduced2<- meta_reduced2 %>% droplevels() 
-
 # 3-way interaction
 #checking how many studies are in each level:
-Feature_TaxonomicGroup_Classification_levels<-levels(meta$Feature_TaxonomicGroup_Classification)
-Feature_TaxonomicGroup_Classification_EffectID<- map(Feature_TaxonomicGroup_Classification_levels, ~length(unique(meta$Effect_ID[meta$Feature_TaxonomicGroup_Classification ==.])))
-Feature_TaxonomicGroup_Classification_Study_Experiment<- map(Feature_TaxonomicGroup_Classification_levels, ~length(unique(meta$Study_Experiment[meta$Feature_TaxonomicGroup_Classification ==.])))
-Feature_TaxonomicGroup_Classification_Study_Location<- map(Feature_TaxonomicGroup_Classification_levels, ~length(unique(meta$Study_Location[meta$Feature_TaxonomicGroup_Classification ==.])))
+Feature_FunctionalGroup_Classification_levels<-levels(meta$Feature_FunctionalGroup_Classification)
+Feature_FunctionalGroup_Classification_EffectID<- map(Feature_FunctionalGroup_Classification_levels, ~length(unique(meta$Effect_ID[meta$Feature_FunctionalGroup_Classification ==.])))
+Feature_FunctionalGroup_Classification_Study_Experiment<- map(Feature_FunctionalGroup_Classification_levels, ~length(unique(meta$Study_Experiment[meta$Feature_FunctionalGroup_Classification ==.])))
+Feature_FunctionalGroup_Classification_Study_Location<- map(Feature_FunctionalGroup_Classification_levels, ~length(unique(meta$Study_Location[meta$Feature_FunctionalGroup_Classification ==.])))
 
-meta_reduced3 <- subset(meta, Feature_TaxonomicGroup_Classification!="Movement_Anthozoans_N") 
-meta_reduced3 <- subset(meta_reduced3, Feature_TaxonomicGroup_Classification!="Movement_Bivalves_N") 
-meta_reduced3 <- subset(meta_reduced3, Feature_TaxonomicGroup_Classification!="Movement_Bivalves_NIS")
-meta_reduced3 <- subset(meta_reduced3, Feature_TaxonomicGroup_Classification!="Movement_Hydrozoans_NIS")
-meta_reduced3 <- subset(meta_reduced3, Feature_TaxonomicGroup_Classification!="Movement_Poriferans_N")
-meta_reduced3 <- subset(meta_reduced3, Feature_TaxonomicGroup_Classification!="Orientation_Anthozoans_N")
-meta_reduced3 <- subset(meta_reduced3, Feature_TaxonomicGroup_Classification!="Orientation_Bivalves_N")
-meta_reduced3 <- subset(meta_reduced3, Feature_TaxonomicGroup_Classification!="Orientation_Hydrozoans_N")
-meta_reduced3 <- subset(meta_reduced3, Feature_TaxonomicGroup_Classification!="Orientation_Poriferans_N")
-meta_reduced3 <- subset(meta_reduced3, Feature_TaxonomicGroup_Classification!="Substrate_Algae_NIS")
-meta_reduced3 <- subset(meta_reduced3, Feature_TaxonomicGroup_Classification!="Substrate_Anthozoans_N")
-meta_reduced3 <- subset(meta_reduced3, Feature_TaxonomicGroup_Classification!="Substrate_Ascidians_N") 
-meta_reduced3 <- subset(meta_reduced3, Feature_TaxonomicGroup_Classification!="Substrate_Ascidians_NIS")
-meta_reduced3 <- subset(meta_reduced3, Feature_TaxonomicGroup_Classification!="Substrate_Barnacles_N")
-meta_reduced3 <- subset(meta_reduced3, Feature_TaxonomicGroup_Classification!="Substrate_Barnacles_NIS")
-meta_reduced3 <- subset(meta_reduced3, Feature_TaxonomicGroup_Classification!="Substrate_Bryozoans_N")
-meta_reduced3 <- subset(meta_reduced3, Feature_TaxonomicGroup_Classification!="Substrate_Bryozoans_NIS")
-meta_reduced3 <- subset(meta_reduced3, Feature_TaxonomicGroup_Classification!="Substrate_Polychaetes_N")
-meta_reduced3 <- subset(meta_reduced3, Feature_TaxonomicGroup_Classification!="Substrate_Polychaetes_NIS")
-meta_reduced3 <- subset(meta_reduced3, Feature_TaxonomicGroup_Classification!="Substrate_Poriferans_N")
-meta_reduced3<- meta_reduced3 %>% droplevels() 
+meta_reduced <- subset(meta, Feature_FunctionalGroup_Classification!="Movement_Anthozoans_N") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Movement_Bivalves_N") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Movement_Bivalves_NIS")
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Movement_Hydrozoans_NIS")
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Movement_Poriferans_N")
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Orientation_Anthozoans_N")
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Orientation_Bivalves_N")
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Orientation_Hydrozoans_N")
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Orientation_Poriferans_N")
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Algae_NIS")
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Anthozoans_N")
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Anthozoans_NIS")
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Ascidians_N") 
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Ascidians_NIS")
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Barnacles_N")
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Barnacles_NIS")
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Bryozoans_N")
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Bryozoans_NIS")
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Polychaetes_N")
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Polychaetes_NIS")
+meta_reduced <- subset(meta_reduced, Feature_FunctionalGroup_Classification!="Substrate_Poriferans_N")
+meta_reduced<- meta_reduced %>% droplevels() 
 
 ```
 
@@ -577,23 +513,6 @@ meta_reduced <- meta_reduced %>%
   mutate(reducedReplicatesControl = (ReplicatesControl / unique_types))
 
 
-meta_reduced2 <- meta_reduced2 %>%
-  group_by(Exp_ID) %>%
-  mutate(unique_types = n_distinct(Treatment))
-
-# Partition the N based on these results:
-meta_reduced2 <- meta_reduced2 %>%
-  mutate(reducedReplicatesControl = (ReplicatesControl / unique_types))
-
-
-meta_reduced3 <- meta_reduced3 %>%
-  group_by(Exp_ID) %>%
-  mutate(unique_types = n_distinct(Treatment))
-
-# Partition the N based on these results:
-meta_reduced3 <- meta_reduced3 %>%
-  mutate(reducedReplicatesControl = (ReplicatesControl / unique_types))
-
 ```
 
 Partitioning based on Treatment: 
@@ -618,23 +537,7 @@ meta_reduced <- meta_reduced %>%
   mutate(reducedReplicatesTreatment = (ReplicatesTreatment / unique_types))
 
 
-meta_reduced2 <- meta_reduced2 %>%
-  group_by(Exp_ID) %>%
-  mutate(unique_types = n_distinct(Control))
-
-# Partition the N based on these results:
-meta_reduced2 <- meta_reduced2 %>%
-  mutate(reducedReplicatesTreatment = (ReplicatesTreatment / unique_types))
-
-
-meta_reduced3 <- meta_reduced3 %>%
-  group_by(Exp_ID) %>%
-  mutate(unique_types = n_distinct(Control))
-
-# Partition the N based on these results:
-meta_reduced3 <- meta_reduced3 %>%
-  mutate(reducedReplicatesTreatment = (ReplicatesTreatment / unique_types))
-
+meta_reduced2<-meta_reduced
 ```
 
 
@@ -713,33 +616,6 @@ meta_reduced.lnRR <-pmap_df(meta_reduced.list, lnRR)
 meta_reduced<- cbind(meta_reduced, meta_reduced.lnRR)
 
 
-meta_reduced2.list <- list(
-  CMean = meta_reduced2$MeanControl,
-  CSD = meta_reduced2$SDControl,
-  CN = meta_reduced2$reducedReplicatesControl,
-  EMean = meta_reduced2$MeanTreatment,
-  ESD = meta_reduced2$SDTreatment,
-  EN = meta_reduced2$reducedReplicatesTreatment,
-  Parameter = meta_reduced2$Parameter)
-
-meta_reduced2.lnRR <-pmap_df(meta_reduced2.list, lnRR)
-
-meta_reduced2<- cbind(meta_reduced2, meta_reduced2.lnRR)
-
-
-
-meta_reduced3.list <- list(
-  CMean = meta_reduced3$MeanControl,
-  CSD = meta_reduced3$SDControl,
-  CN = meta_reduced3$reducedReplicatesControl,
-  EMean = meta_reduced3$MeanTreatment,
-  ESD = meta_reduced3$SDTreatment,
-  EN = meta_reduced3$reducedReplicatesTreatment,
-  Parameter = meta_reduced3$Parameter)
-
-meta_reduced3.lnRR <-pmap_df(meta_reduced3.list, lnRR)
-
-meta_reduced3<- cbind(meta_reduced3, meta_reduced3.lnRR)
 
 # # cehcking data
 # 
@@ -754,6 +630,35 @@ meta_reduced3<- cbind(meta_reduced3, meta_reduced3.lnRR)
 
 
 ```
+
+
+Excluding of most unreliable datapoints/those with the largest uncertainty/variance-> vi>100)
+```{r}
+
+meta<-meta %>%
+        filter(vi<100)
+meta<- meta %>% droplevels() 
+
+
+#checking how many studies are in each level:
+Feature_FunctionalGroup_Classification_levels<-levels(meta$Feature_FunctionalGroup_Classification)
+Feature_FunctionalGroup_Classification_EffectID<- map(Feature_FunctionalGroup_Classification_levels, ~length(unique(meta$Effect_ID[meta$Feature_FunctionalGroup_Classification ==.])))
+Feature_FunctionalGroup_Classification_Study_Experiment<- map(Feature_FunctionalGroup_Classification_levels, ~length(unique(meta$Study_Experiment[meta$Feature_FunctionalGroup_Classification ==.])))
+Feature_FunctionalGroup_Classification_Study_Location<- map(Feature_FunctionalGroup_Classification_levels, ~length(unique(meta$Study_Location[meta$Feature_FunctionalGroup_Classification ==.])))
+
+
+meta_reduced<-meta_reduced %>%
+        filter(vi<100)
+meta_reduced<- meta_reduced %>% droplevels() 
+
+#checking how many studies are in each level:
+Feature_FunctionalGroup_Classification_levels<-levels(meta$Feature_FunctionalGroup_Classification)
+Feature_FunctionalGroup_Classification_EffectID<- map(Feature_FunctionalGroup_Classification_levels, ~length(unique(meta$Effect_ID[meta$Feature_FunctionalGroup_Classification ==.])))
+Feature_FunctionalGroup_Classification_Study_Experiment<- map(Feature_FunctionalGroup_Classification_levels, ~length(unique(meta$Study_Experiment[meta$Feature_FunctionalGroup_Classification ==.])))
+Feature_FunctionalGroup_Classification_Study_Location<- map(Feature_FunctionalGroup_Classification_levels, ~length(unique(meta$Study_Location[meta$Feature_FunctionalGroup_Classification ==.])))
+```
+
+
 
 # VCV MATRICES
 To account for multiple timepoints coming from the same tile/experiment
@@ -807,49 +712,6 @@ V_reduced.check <-
     return_list = F
   )
 
-
-
-
-V_reduced2 <-
-  impute_covariance_matrix(
-    vi = meta_reduced2$vi,
-    cluster = meta_reduced2$Study,
-    r = 0.5,
-    return_list = F
-  )
-
-
-#This is just a test of the vcv functionality.
-# The vcv is calculated for each model or group at the modelling stage.
-V_reduced2.check <-
-  impute_covariance_matrix(
-    vi = meta_reduced2$vi,
-    cluster = meta_reduced2$Study,
-    r = 0.5,
-    return_list = F
-  )
-
-
-
-
-V_reduced3 <-
-  impute_covariance_matrix(
-    vi = meta_reduced3$vi,
-    cluster = meta_reduced3$Study,
-    r = 0.5,
-    return_list = F
-  )
-
-
-#This is just a test of the vcv functionality.
-# The vcv is calculated for each model or group at the modelling stage.
-V_reduced3.check <-
-  impute_covariance_matrix(
-    vi = meta_reduced3$vi,
-    cluster = meta_reduced3$Study,
-    r = 0.5,
-    return_list = F
-  )
 
 ```
 
@@ -950,6 +812,13 @@ meta$Species <-
   sub("Tubulipora plumosa", "Tubulipora", meta$Species)
 meta$Species <-
   sub("Plagioecia patina", "Plagioecia", meta$Species)
+meta$Species <-
+  sub("Stereonephthya cundabilensis", "Stereonephthya cundabiluensis", meta$Species)
+meta$Species <-
+  sub("Nephthea", "Litophyton", meta$Species)
+
+
+
 
 a <- unique(meta$Species)
 a <- as.character(a)
@@ -1067,6 +936,11 @@ meta_reduced$Species <-
   sub("Tubulipora plumosa", "Tubulipora", meta_reduced$Species)
 meta_reduced$Species <-
   sub("Plagioecia patina", "Plagioecia", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Stereonephthya cundabilensis", "Stereonephthya cundabiluensis", meta_reduced$Species)
+meta_reduced$Species <-
+  sub("Nephthea", "Litophyton", meta_reduced$Species)
+
 
 b <- unique(meta_reduced$Species)
 b <- as.character(b)
@@ -1095,246 +969,46 @@ cor2 #to see the correlations
 # adding phylogeny
 meta_reduced$Phylogeny <- meta_reduced$Species
 
-
-
-#for reduced2 dataset
-unique(meta_reduced2$Species)
-
-meta_reduced2$Species <-
-  sub("Botrylloides magnicoecum", "Botrylloides anceps", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Pomatoceros triqueter", "Spirobranchus triqueter", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Schyzoporella maulina", "Schizoporella maulina", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Diplosolen arctica", "Diplosolen obelia", meta_reduced2$Species) #synonym for D. antartica according to Atlas of Artic Bryozoa
-meta_reduced2$Species <-
-  sub("Bugula neritina", "Bugula", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Bugula stolonifera", "Bugula", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Bugulina flabellata", "Bugula", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Bugula flabellata", "Bugula", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Bugula", "Bugula (genus in Opisthokonta)", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Didemnum vexillum", "Didemnum", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Galeolaria caespitosa", "Galeolaria", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Bowerbankia gracilis", "Amathia", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Bowerbankia", "Amathia", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Amathia gracilis", "Amathia", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Amathia", "Amathia (genus in Lophotrochozoa)", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Diplosoma listerianum", "Diplosoma", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Diplosoma longinquum", "Diplosoma", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Diplosoma", "Diplosoma (genus in Bilateria)", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Microporella umbracula", "Microporella coronata", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Pomatoceros", "Spirobranchus", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Spirobranchus taeniata", "Spirobranchus taeniatus", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Spirobranchus taeniatus", "Spirobranchus", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Spirobranchus triqueter", "Spirobranchus", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Zonaria", "Zonaria (genus in subkingdom SAR)", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Martensia", "Martensia (genus in kingdom Archaeplastida)", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Feldmannia", "Feldmannia (genus in subkingdom SAR)", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Hydroides elegans", "Hydroides", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Hydroides dirampha", "Hydroides", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Ulva lactuca", "Ulva", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Saccostrea commercialis", "Saccostrea glomerata", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Einhornia crustulenta", "Electra crustulenta", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Hippodiplosia obesa", "Schizoporella obesa", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Smittina majuscula", "Raymondcia majuscula", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Polysiphonia nigrescens", "Polysiphonia fucoides", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Rhodomela virgata", "Rhodomela confervoides", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Metridium senile", "Metridium dianthus", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Conopeum seurati", "Conopeum", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Conopeum reticulum", "Conopeum", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Obelia species", "Obelia striata", meta_reduced2$Species) #used as otherwise not working
-meta_reduced2$Species <-
-  sub("Callopora lineata", "Callopora", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Callopora craticula", "Callopora", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Tubulipora plumosa", "Tubulipora", meta_reduced2$Species)
-meta_reduced2$Species <-
-  sub("Plagioecia patina", "Plagioecia", meta_reduced2$Species)
-
-
-c <- unique(meta_reduced2$Species)
-c <- as.character(c)
-c
-
-##need internet connection for this part
-taxa3 <- tnrs_match_names(names = c)
-
-
-tree3 <- tol_induced_subtree(ott_ids = ott_id(taxa3))
-
-#remove ott ids to match the species ids
-tree3$tip.label <-
-  strip_ott_ids(tree3$tip.label, remove_underscores = TRUE)
-
-#plot tree
-plot(tree3,
-     cex = .8,
-     label.offset = .1,
-     no.margin = TRUE)
-
-tree3 <- compute.brlen(tree3)
-cor3 <- vcv(tree3, cor3 = T)
-cor3 #to see the correlations
-
-# adding phylogeny
-meta_reduced2$Phylogeny <- meta_reduced2$Species
-
-
-
-#for reduced3 dataset
-unique(meta_reduced3$Species)
-
-meta_reduced3$Species <-
-  sub("Botrylloides magnicoecum", "Botrylloides anceps", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Pomatoceros triqueter", "Spirobranchus triqueter", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Schyzoporella maulina", "Schizoporella maulina", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Diplosolen arctica", "Diplosolen obelia", meta_reduced3$Species) #synonym for D. antartica according to Atlas of Artic Bryozoa
-meta_reduced3$Species <-
-  sub("Bugula neritina", "Bugula", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Bugula flabellata", "Bugula", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Bugula stolonifera", "Bugula", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Bugulina flabellata", "Bugula", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Bugula", "Bugula (genus in Opisthokonta)", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Didemnum vexillum", "Didemnum", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Galeolaria caespitosa", "Galeolaria", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Bowerbankia gracilis", "Amathia", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Bowerbankia", "Amathia", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Amathia gracilis", "Amathia", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Amathia", "Amathia (genus in Lophotrochozoa)", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Diplosoma listerianum", "Diplosoma", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Diplosoma longinquum", "Diplosoma", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Diplosoma", "Diplosoma (genus in Bilateria)", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Microporella umbracula", "Microporella coronata", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Pomatoceros", "Spirobranchus", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Spirobranchus taeniata", "Spirobranchus taeniatus", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Spirobranchus taeniatus", "Spirobranchus", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Spirobranchus triqueter", "Spirobranchus", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Zonaria", "Zonaria (genus in subkingdom SAR)", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Martensia", "Martensia (genus in kingdom Archaeplastida)", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Feldmannia", "Feldmannia (genus in subkingdom SAR)", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Hydroides elegans", "Hydroides", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Hydroides dirampha", "Hydroides", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Ulva lactuca", "Ulva", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Saccostrea commercialis", "Saccostrea glomerata", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Einhornia crustulenta", "Electra crustulenta", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Hippodiplosia obesa", "Schizoporella obesa", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Smittina majusculas", "Raymondcia majuscula", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Polysiphonia nigrescens", "Polysiphonia fucoides", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Rhodomela virgata", "Rhodomela confervoides", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Metridium senile", "Metridium dianthus", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Conopeum seurati", "Conopeum", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Conopeum reticulum", "Conopeum", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Obelia species", "Obelia striata", meta_reduced3$Species) #used as otherwise not working
-meta_reduced3$Species <-
-  sub("Callopora lineata", "Callopora", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Callopora craticula", "Callopora", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Tubulipora plumosa", "Tubulipora", meta_reduced3$Species)
-meta_reduced3$Species <-
-  sub("Plagioecia patina", "Plagioecia", meta_reduced3$Species)
-
-d <- unique(meta_reduced3$Species)
-d <- as.character(d)
-d
-
-##need internet connection for this part
-taxa4 <- tnrs_match_names(names = d)
-
-
-tree4 <- tol_induced_subtree(ott_ids = ott_id(taxa4))
-
-#remove ott ids to match the species ids
-tree4$tip.label <-
-  strip_ott_ids(tree4$tip.label, remove_underscores = TRUE)
-
-#plot tree
-plot(tree4,
-     cex = .8,
-     label.offset = .1,
-     no.margin = TRUE)
-
-tree4 <- compute.brlen(tree4)
-cor4 <- vcv(tree4, cor4 = T)
-cor4 #to see the correlations
-
-# adding phylogeny
-meta_reduced3$Phylogeny <- meta_reduced3$Species
-
 ```
+
+
+
+##How many studies, study locations, experiment for each Feature?
+```{r}
+
+meta_reduced$Feature_Study <-
+  paste(meta_reduced$Feature, meta_reduced$Study, sep = "_")
+meta_reduced$Feature_Study <-as.factor(meta_reduced$Feature_Study)
+
+meta_reduced$Feature_Study_Location <-
+  paste(meta_reduced$Feature, meta_reduced$Study_Location, sep = "_")
+meta_reduced$Feature_Study_Location <-as.factor(meta_reduced$Feature_Study_Location)
+
+meta_reduced$Feature_Study_Experiment <-
+  paste(meta_reduced$Feature_Study, meta_reduced$Experiment, sep = "_")
+meta_reduced$Feature_Study_Experiment <-as.factor(meta_reduced$Feature_Study_Experiment)
+
+
+meta_reduced$Feature_Study_Experiment_Duration <-
+  paste(meta_reduced$Feature, meta_reduced$Study_Experiment_Duration, sep = "_")
+meta_reduced$Feature_Study_Experiment_Duration <-as.factor(meta_reduced$Feature_Study_Experiment_Duration)
+
+meta_reduced$Feature_Species <-
+  paste(meta_reduced$Feature, meta_reduced$Species, sep = "_")
+meta_reduced$Feature_Species <-as.factor(meta_reduced$Feature_Species)
+
+meta_reduced$Feature_Species_Classification <-
+  paste(meta_reduced$Feature_Species, meta_reduced$Classification.STUDY, sep = "_")
+meta_reduced$Feature_Species_Classification <-as.factor(meta_reduced$Feature_Species_Classification)
+
+levels(meta_reduced$Feature_Study)
+levels(meta_reduced$Feature_Study_Location)
+levels(meta_reduced$Feature_Study_Experiment)
+levels(meta_reduced$Feature_Study_Experiment_Duration)
+levels(meta_reduced$Feature_Species)
+levels(meta_reduced$Feature_Species_Classification)
+```
+
 
 
 #Models
@@ -1365,15 +1039,15 @@ plot_dpi <- 300
 
 ```{r}
 
-rom.simple <- rma.mv(yi, V, random = list(~ 1|Study,
+rom.simple <- rma.mv(yi, V_reduced, random = list(~ 1|Study,
                                           ~ 1|Study_Experiment,
                                           ~ 1|Study_Experiment_Duration,
                                           ~ 1|Effect_ID,
                                           ~ 1|Species,
                                           ~ 1|Phylogeny),
-                                          R = list(Phylogeny = cor),
+                                          R = list(Phylogeny = cor2),
                             method = "REML",
-                            data = meta,
+                            data = meta_reduced,
                             sparse = TRUE, # makes it quicker to run
                             control = list(optimizer="optim"))
 
@@ -1409,11 +1083,11 @@ res.simple <- data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
                           AIC = rom.simple$fit.stats$REML[3])
         
 res_simple_df <- bind_rows(res.simple)
-write.csv(res_simple_df, file = "./output/ Global_nozeros/summ_simple.csv")
+write.csv(res_simple_df, file = "./output/Global_nozeros/summ_simple.csv")
 
 
 simp_orch <- orchard_plot(rom.simple,  xlab = "lnRR", 
-                          group = "Study_Experiment", data = meta) +
+                          group = "Study_Experiment", data = meta_reduced) +
   scale_y_discrete(labels = c("Intrcpt" = "Overall")) +
   theme(
     text = element_text(size = 12, colour = "black"),
@@ -1427,78 +1101,11 @@ simp_orch <- orchard_plot(rom.simple,  xlab = "lnRR",
   )
 
 simp_orch
-ggsave(simp_orch, file = "./output/ Global_nozeros/simp_orch.tiff", dpi = plot_dpi,width = 10, height = 8)
+ggsave(simp_orch, file = "./output/Global_nozeros/simp_orch.tiff", dpi = plot_dpi,width = 10, height = 8)
 
-simp_cat <- caterpillars(rom.simple, xlab = "lnRR", group="Study_Experiment", data=meta)
+simp_cat <- caterpillars(rom.simple, xlab = "lnRR", group="Study_Experiment", data=meta_reduced)
 simp_cat
-ggsave(simp_cat, file = "./output/ Global_nozeros/simp_cat.tiff", dpi = plot_dpi)
-```
-
-## Adjusted simple model
-Random factors Study_experiment, Study_Experiment_Duration have very small effects (I2 <0.25) and are removed.
-The simple model was rerun without these factors.
-
-```{r}
-
-rom.simple.adj <- rma.mv(yi, V, random = list(~ 1|Study,
-                                              ~ 1|Effect_ID,
-                                              ~ 1|Species,
-                                              ~ 1|Phylogeny),
-                                              R = list(Phylogeny = cor),
-                                method = "REML",
-                                data = meta,
-                                sparse = TRUE, # makes it quicker to run
-                                control = list(optimizer="optim"))
-
-forest(rom.simple.adj)
-summary(rom.simple.adj)
-
-i2_ml(rom.simple.adj)
-r2_ml(rom.simple.adj)
-
-sum <- summary(rom.simple.adj)
-sum_I2 <- i2_ml(rom.simple.adj)
-sum_R2 <- r2_ml(rom.simple.adj)
-
-res.simple.adj <- data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
-                          beta = as.numeric(sum$beta),
-                          se = as.numeric(sum$se),
-                          percentage_increase_or_decrease_on_treatment = (exp(sum$beta)-1)*100,
-                          real.effect.value = exp(sum$beta),
-                          pval = sum$pval,
-                          ci.lb = sum$ci.lb,
-                          ci.ub = sum$ci.ub,
-                          I2_total = sum_I2[[1]],
-                          I2_study = sum_I2[[2]],
-                          I2_Effect_ID = sum_I2[[3]],
-                          I2_Species = sum_I2[[4]],
-                          I2_Phylogeny = sum_I2[[5]],
-                          R2_marginal_fixed = sum_R2[[1]]*100,
-                          R2_conditional_fixed_random = sum_R2[[2]]*100,
-                          Moderator_significance_stat = sum$QM,
-                          Moderator_significance_pval = sum$QMp,
-                          AIC = rom.simple.adj$fit.stats$REML[3])
-        
-res_simple.adj_df <- bind_rows(res.simple.adj)
-write.csv(res_simple.adj_df, file = "./output/ Global_nozeros/summ_simple_adj.csv")
-
-simp.adj_orch <- orchard_plot(rom.simple.adj,  xlab = "Ratio of means", 
-                          group = "Study_Experiment", data = meta) +
-  theme(
-    text = element_text(size = 12, colour = "black"),
-    axis.text.y = element_text(size = 12, colour = "black")) +
-      scale_fill_manual(values = c("grey")) + scale_colour_manual(values = c("grey"))+
-  theme(
-    legend.direction = "horizontal",
-    legend.title = element_text(size = 12, colour = "black"),
-    legend.text = element_text(size = 12, colour = "black"))
-
-simp.adj_orch
-ggsave(simp.adj_orch, file = "./output/ Global_nozeros/simp.adj_orch.tiff", dpi = plot_dpi,width = 10, height = 8)
-
-simp.adj_cat <- caterpillars(rom.simple.adj, xlab = "lnRR", group="Study_Experiment", data=meta)
-simp.adj_cat
-ggsave(simp.adj_cat, file = "./output/ Global_nozeros/simp.adj_cat.tiff", dpi = plot_dpi)
+ggsave(simp_cat, file = "./output/Global_nozeros/simp_cat.tiff", dpi = plot_dpi)
 ```
 
 
@@ -1507,14 +1114,16 @@ testing whether parameter (abundance or percentage cover) has an influence
 
 ```{r, results='hide', fig.show='hide'}
 #using reduced dataset where each level comprises of at least 3 experiments
-rom.Parameter <- rma.mv(yi, V, mods = ~ Parameter - 1,
+rom.Parameter <- rma.mv(yi, V_reduced, mods = ~ Parameter - 1,
                                               random = list(~ 1|Study,
-                                                            ~ 1|Effect_ID,
-                                                            ~ 1|Species,
-                                                            ~ 1|Phylogeny),
-                                                           R = list(Phylogeny = cor),
+                                          ~ 1|Study_Experiment,
+                                          ~ 1|Study_Experiment_Duration,
+                                          ~ 1|Effect_ID,
+                                          ~ 1|Species,
+                                          ~ 1|Phylogeny),
+                                          R = list(Phylogeny = cor2),
                                                            method = "REML",
-                                                           data = meta,
+                                                           data = meta_reduced,
                                                            sparse = TRUE, # makes it quicker to run
                                                            control = list(optimizer ="optim"))
 
@@ -1533,9 +1142,11 @@ res.Parameter <-data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
                           ci.ub = sum$ci.ub,
                           I2_total = sum_I2[[1]],
                           I2_study = sum_I2[[2]],
-                          I2_Effect_ID = sum_I2[[3]],
-                          I2_Species = sum_I2[[4]],
-                          I2_Phylogeny = sum_I2[[5]],
+                          I2_study_experiment = sum_I2[[3]],
+                          I2_study_experiment_duration = sum_I2[[4]],
+                          I2_Effect_ID = sum_I2[[5]],
+                          I2_Species = sum_I2[[6]],
+                          I2_Phylogeny = sum_I2[[7]],
                           R2_marginal_fixed = sum_R2[[1]]*100,
                           R2_conditional_fixed_random = sum_R2[[2]]*100,
                           Moderator_significance_stat = sum$QM,
@@ -1544,16 +1155,16 @@ res.Parameter <-data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
 
 
 res_Parameter_df <- bind_rows(res.Parameter)
-write.csv(res_Parameter_df, file = "./output/ Global_nozeros/summ_Parameter.csv")
+write.csv(res_Parameter_df, file = "./output/Global_nozeros/summ_Parameter.csv")
 
 
 Parameter_orch <-
-  orchard_plot(rom.Parameter, mod = "Parameter", xlab = "Ratio of means", group="Study_Experiment", data=meta) + theme(axis.text.y = element_text(angle = 0, hjust = 1))
+  orchard_plot(rom.Parameter, mod = "Parameter", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced) + theme(axis.text.y = element_text(angle = 0, hjust = 1))
 Parameter_orch
 
 ggsave(
  Parameter_orch,
-  file = "./output/ Global_nozeros/Parameter_orch.tiff",
+  file = "./output/Global_nozeros/Parameter_orch.tiff",
   dpi = plot_dpi,
   width = 10,
   height = 8
@@ -1561,122 +1172,28 @@ ggsave(
 
 
 Parameter_cat <-
-  caterpillars(rom.Parameter, mod = "Parameter", xlab = "Ratio of means", group="Study_Experiment", data=meta)
+  caterpillars(rom.Parameter, mod = "Parameter", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced)
 Parameter_cat
-ggsave(Parameter_cat, file = "./output/ Global_nozeros/Parameter_cat.tiff", dpi = plot_dpi)
+ggsave(Parameter_cat, file = "./output/Global_nozeros/Parameter_cat.tiff", dpi = plot_dpi)
 
+
+#Parameter was significant and was therefore kept in the model as a random factor
 ```
 
-Parameter was not significant and was therefore not further considered in the model.
 
 
 ## Adding Mod 3 WAY INTERACTION
-Feature_TaxonomicGroup_Classification
+Feature_FunctionalGroup_Classification
 (could not be tested if only location and deployment used as "study" due to insufficient replication)
 
 ```{r, results='hide', fig.show='hide'}
 #using reduced dataset where each level comprises of at least 3 experiments
-rom.FeatureTaxonomicGroupClassification <- rma.mv(yi, V_reduced3, mods = ~ Feature_TaxonomicGroup_Classification - 1,
+rom.FeatureFunctionalGroupClassification <- rma.mv(yi, V_reduced, mods = ~ Feature_FunctionalGroup_Classification - 1,
                                               random = list(~ 1|Study,
+                                                            ~ 1|Study_Experiment,
+                                                            ~ 1|Study_Experiment_Duration,
                                                             ~ 1|Effect_ID,
-                                                            ~ 1|Species,
-                                                            ~ 1|Phylogeny),
-                                                           R = list(Phylogeny = cor4),
-                                                           method = "REML",
-                                                           data = meta_reduced3,
-                                                           sparse = TRUE, # makes it quicker to run
-                                                           control = list(optimizer ="optim"))
-
-
-sum <- summary(rom.FeatureTaxonomicGroupClassification)
-sum_I2 <- i2_ml(rom.FeatureTaxonomicGroupClassification)
-sum_R2 <- r2_ml(rom.FeatureTaxonomicGroupClassification)
-
-res.Feature_TaxonomicGroup_Classification <-data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
-                          beta = as.numeric(sum$beta),
-                          se = as.numeric(sum$se),
-                          percentage_increase_or_decrease_on_treatment = (exp(sum$beta)-1)*100,
-                          real.effect.value = exp(sum$beta),
-                          pval = sum$pval,
-                          ci.lb = sum$ci.lb,
-                          ci.ub = sum$ci.ub,
-                          I2_total = sum_I2[[1]],
-                          I2_study = sum_I2[[2]],
-                          I2_Effect_ID = sum_I2[[3]],
-                          I2_Species = sum_I2[[4]],
-                          I2_Phylogeny = sum_I2[[5]],
-                          R2_marginal_fixed = sum_R2[[1]]*100,
-                          R2_conditional_fixed_random = sum_R2[[2]]*100,
-                          Moderator_significance_stat = sum$QM,
-                          Moderator_significance_pval = sum$QMp,
-                          AIC = rom.FeatureTaxonomicGroupClassification$fit.stats$REML[3])
-
-
-res.Feature_TaxonomicGroup_Classification_df <- bind_rows(res.Feature_TaxonomicGroup_Classification)
-write.csv(res_res.Feature_TaxonomicGroup_Classification_df, file = "./output/ Global_nozeros/summ_res.Feature_TaxonomicGroup_Classification.csv")
-
-g_col <- c("#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D")
-
-FeatureTaxonomicGroupClassification_orch <-
-  orchard_plot(rom.FeatureTaxonomicGroupClassification, mod = "Feature_TaxonomicGroup_Classification", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced3) +  scale_fill_manual(values = g_col) + scale_colour_manual(values = g_col) + theme(axis.text.y = element_text(hjust = 0.95, angle=0)) +
-  theme(plot.title = element_text(size = 14, face = "bold"),
-        text = element_text(size = 12),
-        axis.text.y = element_text(size = 12))
-FeatureTaxonomicGroupClassification_orch
-  
-ggsave(
- FeatureTaxonomicGroupClassification_orch,
-  file = "./output/ Global_nozeros/FeatureTaxonomicGroupClassification_orch.tiff",
-  dpi = plot_dpi,
-  width = 10,
-  height = 8
-)
-
-ggsave(
- FeatureTaxonomicGroupClassification_orch,
-  file = "./output/ Global_nozeros/FeatureTaxonomicGroupClassification_orch.pdf",
-  dpi = plot_dpi,
-  width = 10,
-  height = 8
-)
-
-FeatureTaxonomicGroupClassification_cat <-
-  caterpillars(rom.TaxonomicGroupClassification, mod = "Feature_TaxonomicGroup_Classification", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced3)
-FeatureTaxonomicGroupClassification_cat
-ggsave(FeatureTaxonomicGroupClassification_cat, file = "./output/ Global_nozeros/FeatureTaxonomicGroupClassification_cat.tiff", dpi = plot_dpi)
-
-
-table(meta_reduced3$Feature_TaxonomicGroup_Classification)
-contrast_FeatureTaxonomicGroupClassification <- summary(glht(
-  rom.FeatureTaxonomicGroupClassification,
-  linfct = c(
-    "Feature_TaxonomicGroup_ClassificationPolychaetes_N - Feature_TaxonomicGroup_ClassificationPolychaetes_NIS = 0",
-    "Feature_TaxonomicGroup_ClassificationBryozoans_N - Feature_TaxonomicGroup_ClassificationBryozoans_NIS = 0",
-    "Feature_TaxonomicGroup_ClassificationBarnacles_N - Feature_TaxonomicGroup_ClassificationBarnacles_NIS = 0",
-    "Feature_TaxonomicGroup_ClassificationAscidians_N - Feature_TaxonomicGroup_ClassificationAscidians_NIS = 0",
-    "Feature_TaxonomicGroup_ClassificationAlgae_N - Feature_TaxonomicGroup_ClassificationAlgae_NIS = 0"
-  )
-))
-
-contrasts_list <- mget(ls(pattern = "^contrast_+"))
-summary(contrasts_list)
-
-con_df <- map_df(contrasts_list, ~ broom::tidy(.x), .id = "names")
-
-#save
-write.csv(con_df, file = "./output/ Global_nozeros/contrasts_TaxonomicGroupClassification.csv")
-```
-
-
-
-## Adding Mod TAXONOMIC GROUP:Classification
-(could not be tested if only location and deployment used as "study" due to insufficient replication)
-
-```{r, results='hide', fig.show='hide'}
-#using reduced dataset where each level comprises of at least 3 experiments
-rom.TaxonomicGroupClassification <- rma.mv(yi, V_reduced, mods = ~ TaxonomicGroup_Classification - 1,
-                                              random = list(~ 1|Study,
-                                                            ~ 1|Effect_ID,
+                                                            ~ 1|Parameter,
                                                             ~ 1|Species,
                                                             ~ 1|Phylogeny),
                                                            R = list(Phylogeny = cor2),
@@ -1686,11 +1203,11 @@ rom.TaxonomicGroupClassification <- rma.mv(yi, V_reduced, mods = ~ TaxonomicGrou
                                                            control = list(optimizer ="optim"))
 
 
-sum <- summary(rom.TaxonomicGroupClassification)
-sum_I2 <- i2_ml(rom.TaxonomicGroupClassification)
-sum_R2 <- r2_ml(rom.TaxonomicGroupClassification)
+sum <- summary(rom.FeatureFunctionalGroupClassification)
+sum_I2 <- i2_ml(rom.FeatureFunctionalGroupClassification)
+sum_R2 <- r2_ml(rom.FeatureFunctionalGroupClassification)
 
-res.TaxonomicGroupClassification <-data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
+res.Feature_FunctionalGroup_Classification <-data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
                           beta = as.numeric(sum$beta),
                           se = as.numeric(sum$se),
                           percentage_increase_or_decrease_on_treatment = (exp(sum$beta)-1)*100,
@@ -1700,59 +1217,60 @@ res.TaxonomicGroupClassification <-data.frame(effectname = attr(sum$beta, "dimna
                           ci.ub = sum$ci.ub,
                           I2_total = sum_I2[[1]],
                           I2_study = sum_I2[[2]],
-                          I2_Effect_ID = sum_I2[[3]],
-                          I2_Species = sum_I2[[4]],
-                          I2_Phylogeny = sum_I2[[5]],
+                          I2_study_experiment = sum_I2[[3]],
+                          I2_study_experiment_duration = sum_I2[[4]],
+                          I2_Effect_ID = sum_I2[[5]],
+                          I2_Species = sum_I2[[6]],
+                          I2_Phylogeny = sum_I2[[7]],
                           R2_marginal_fixed = sum_R2[[1]]*100,
                           R2_conditional_fixed_random = sum_R2[[2]]*100,
                           Moderator_significance_stat = sum$QM,
                           Moderator_significance_pval = sum$QMp,
-                          AIC = rom.TaxonomicGroupClassification$fit.stats$REML[3])
+                          AIC = rom.FeatureFunctionalGroupClassification$fit.stats$REML[3])
 
 
-res_TaxonomicGroupClassification_df <- bind_rows(res.TaxonomicGroupClassification)
-write.csv(res_TaxonomicGroupClassification_df, file = "./output/ Global_nozeros/summ_TaxonomicGroupClassification.csv")
+res.Feature_FunctionalGroup_Classification_df <- bind_rows(res.Feature_FunctionalGroup_Classification)
+write.csv(res.Feature_FunctionalGroup_Classification_df, file = "./output/Global_nozeros/summ_res.Feature_FunctionalGroup_Classification.csv")
 
-g_col <- c("#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D")
+g_col <- c("#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D")
 
-TaxonomicGroupClassification_orch <-
-  orchard_plot(rom.TaxonomicGroupClassification, mod = "TaxonomicGroup_Classification", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced) +  scale_fill_manual(values = g_col) + scale_colour_manual(values = g_col) + theme(axis.text.y = element_text(hjust = 0.95, angle=0)) +
+FeatureFunctionalGroupClassification_orch <-
+  orchard_plot(rom.FeatureFunctionalGroupClassification, mod = "Feature_FunctionalGroup_Classification", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced) +  scale_fill_manual(values = g_col) + scale_colour_manual(values = g_col) + theme(axis.text.y = element_text(hjust = 0.95, angle=0)) +
   theme(plot.title = element_text(size = 14, face = "bold"),
         text = element_text(size = 12),
         axis.text.y = element_text(size = 12))
-TaxonomicGroupClassification_orch
+FeatureFunctionalGroupClassification_orch
   
 ggsave(
- TaxonomicGroupClassification_orch,
-  file = "./output/ Global_nozeros/TaxonomicGroupClassification_orch.tiff",
+ FeatureFunctionalGroupClassification_orch,
+  file = "./output/Global_nozeros/FeatureFunctionalGroupClassification_orch.tiff",
   dpi = plot_dpi,
   width = 10,
   height = 8
 )
 
-ggsave(
- TaxonomicGroupClassification_orch,
-  file = "./output/ Global_nozeros/TaxonomicGroupClassification_orch.pdf",
-  dpi = plot_dpi,
-  width = 10,
-  height = 8
-)
 
-TaxonomicGroupClassification_cat <-
-  caterpillars(rom.TaxonomicGroupClassification, mod = "TaxonomicGroup_Classification", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced)
-TaxonomicGroupClassification_cat
-ggsave(TaxonomicGroupClassification_cat, file = "./output/ Global_nozeros/TaxonomicGroupClassification_cat.tiff", dpi = plot_dpi)
+FeatureFunctionalGroupClassification_cat <-
+  caterpillars(rom.FeatureFunctionalGroupClassification, mod = "Feature_FunctionalGroup_Classification", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced)
+FeatureFunctionalGroupClassification_cat
+ggsave(FeatureFunctionalGroupClassification_cat, file = "./output/Global_nozeros/FeatureFunctionalGroupClassification_cat.tiff", dpi = plot_dpi)
 
 
-table(meta_reduced$TaxonomicGroup_Classification)
-contrast_TaxonomicGroupClassification <- summary(glht(
-  rom.TaxonomicGroupClassification,
+table(meta_reduced$Feature_FunctionalGroup_Classification)
+contrast_FeatureFunctionalGroupClassification <- summary(glht(
+  rom.FeatureFunctionalGroupClassification,
   linfct = c(
-    "TaxonomicGroup_ClassificationPolychaetes_N - TaxonomicGroup_ClassificationPolychaetes_NIS = 0",
-    "TaxonomicGroup_ClassificationBryozoans_N - TaxonomicGroup_ClassificationBryozoans_NIS = 0",
-    "TaxonomicGroup_ClassificationBarnacles_N - TaxonomicGroup_ClassificationBarnacles_NIS = 0",
-    "TaxonomicGroup_ClassificationAscidians_N - TaxonomicGroup_ClassificationAscidians_NIS = 0",
-    "TaxonomicGroup_ClassificationAlgae_N - TaxonomicGroup_ClassificationAlgae_NIS = 0"
+    "Feature_FunctionalGroup_ClassificationMovement_Algae_N - Feature_FunctionalGroup_ClassificationMovement_Algae_NIS = 0",
+    "Feature_FunctionalGroup_ClassificationMovement_Ascidians_N - Feature_FunctionalGroup_ClassificationMovement_Ascidians_NIS = 0",
+    "Feature_FunctionalGroup_ClassificationMovement_Barnacles_N - Feature_FunctionalGroup_ClassificationMovement_Barnacles_NIS = 0",
+    "Feature_FunctionalGroup_ClassificationMovement_Bryozoans_N - Feature_FunctionalGroup_ClassificationMovement_Bryozoans_NIS = 0",
+    "Feature_FunctionalGroup_ClassificationMovement_Polychaetes_N - Feature_FunctionalGroup_ClassificationMovement_Polychaetes_NIS = 0",
+    "Feature_FunctionalGroup_ClassificationOrientation_Algae_N - Feature_FunctionalGroup_ClassificationOrientation_Algae_NIS = 0",
+    "Feature_FunctionalGroup_ClassificationOrientation_Ascidians_N - Feature_FunctionalGroup_ClassificationOrientation_Ascidians_NIS = 0",
+    "Feature_FunctionalGroup_ClassificationOrientation_Barnacles_N - Feature_FunctionalGroup_ClassificationOrientation_Barnacles_NIS = 0",
+        "Feature_FunctionalGroup_ClassificationOrientation_Bryozoans_N - Feature_FunctionalGroup_ClassificationOrientation_Bryozoans_NIS = 0",
+    "Feature_FunctionalGroup_ClassificationOrientation_Polychaetes_N - Feature_FunctionalGroup_ClassificationOrientation_Polychaetes_NIS = 0",
+    "Feature_FunctionalGroup_ClassificationSubstrate_Bivalves_N - Feature_FunctionalGroup_ClassificationSubstrate_Bivalves_NIS = 0"
   )
 ))
 
@@ -1762,114 +1280,36 @@ summary(contrasts_list)
 con_df <- map_df(contrasts_list, ~ broom::tidy(.x), .id = "names")
 
 #save
-write.csv(con_df, file = "./output/ Global_nozeros/contrasts_TaxonomicGroupClassification.csv")
+write.csv(con_df, file = "./output/Global_nozeros/contrasts_FeatureFunctionalGroupClassification.csv")
 ```
 
-## Adding Mod FEATURE:CLASSIFICATION
-```{r, results='hide', fig.show='hide'}
-#using reduced dataset where each level comprises of at least 3 experiments
-rom.FeatureClassification <- rma.mv(yi, V, mods = ~ Feature_Classification - 1,
-                                              random = list(~ 1|Study,
-                                                            ~ 1|Effect_ID,
-                                                            ~ 1|Species,
-                                                            ~ 1|Phylogeny),
-                                                           R = list(Phylogeny = cor),
-                                                           method = "REML",
-                                                           data = meta,
-                                                           sparse = TRUE, # makes it quicker to run
-                                                           control = list(optimizer ="optim"))
-
-
-sum <- summary(rom.FeatureClassification)
-sum_I2 <- i2_ml(rom.FeatureClassification)
-sum_R2 <- r2_ml(rom.FeatureClassification)
-
-res.FeatureClassification <-data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
-                          beta = as.numeric(sum$beta),
-                          se = as.numeric(sum$se),
-                          percentage_increase_or_decrease_on_treatment = (exp(sum$beta)-1)*100,
-                          real.effect.value = exp(sum$beta),
-                          pval = sum$pval,
-                          ci.lb = sum$ci.lb,
-                          ci.ub = sum$ci.ub,
-                          I2_total = sum_I2[[1]],
-                          I2_study = sum_I2[[2]],
-                          I2_Effect_ID = sum_I2[[3]],
-                          I2_Species = sum_I2[[4]],
-                          I2_Phylogeny = sum_I2[[5]],
-                          R2_marginal_fixed = sum_R2[[1]]*100,
-                          R2_conditional_fixed_random = sum_R2[[2]]*100,
-                          Moderator_significance_stat = sum$QM,
-                          Moderator_significance_pval = sum$QMp,
-                          AIC = rom.FeatureClassification$fit.stats$REML[3])
-
-
-res_FeatureClassification_df <- bind_rows(res.FeatureClassification)
-write.csv(res_FeatureClassification_df, file = "./output/ Global_nozeros/summ_FeatureClassification.csv")
-
-g_col <- c("#619CFF","#F8766D","#619CFF","#F8766D","#619CFF","#F8766D")
-
-FeatureClassification_orch <-
-  orchard_plot(rom.FeatureClassification, mod = "Feature_Classification", xlab = "Ratio of means", group="Study_Experiment", data=meta) +  scale_fill_manual(values = g_col) + scale_colour_manual(values = g_col) + theme(axis.text.y = element_text(hjust = 0.95, angle=0)) +
-  theme(plot.title = element_text(size = 14, face = "bold"),
-        text = element_text(size = 12),
-        axis.text.y = element_text(size = 12))
-FeatureClassification_orch
-
-ggsave(
- FeatureClassification_orch,
-  file = "./output/ Global_nozeros/FeatureClassification_orch.tiff",
-  dpi = plot_dpi,
-  width = 10,
-  height = 8
-)
-
-
-FeatureClassification_cat <-
-  caterpillars(rom.FeatureClassification, mod = "Feature_Classification", xlab = "Ratio of means", group="Study_Experiment", data=meta)
-FeatureClassification_cat
-ggsave(FeatureClassification_cat, file = "./output/ Global_nozeros/FeatureClassification_cat.tiff", dpi = plot_dpi)
-
-table(meta$Feature_Classification)
-contrast_FeatureClassification <- summary(glht(
-  rom.FeatureClassification,
-  linfct = c(
-    "Feature_ClassificationSubstrate_N - Feature_ClassificationSubstrate_NIS = 0",
-    "Feature_ClassificationOrientation_N - Feature_ClassificationOrientation_NIS = 0",
-    "Feature_ClassificationMovement_N - Feature_ClassificationMovement_NIS = 0"
-  )
-))
-
-contrasts_list <- mget(ls(pattern = "^contrast_+"))
-summary(contrasts_list)
-
-con_df <- map_df(contrasts_list, ~ broom::tidy(.x), .id = "names")
-
-#save
-write.csv(con_df, file = "./output/ Global_nozeros/contrasts_FeatureClassification.csv")
-```
 
 
 ## Adding Mod FEATURE:TAXONOMIC GROUP
+only done for those taxonomic groups that were tested in the 3-way interaction
+
 ```{r, results='hide', fig.show='hide'}
 #using reduced dataset where each level comprises of at least 3 experiments
-rom.FeatureTaxonomicGroup <- rma.mv(yi, V_reduced2, mods = ~ Feature_TaxonomicGroup - 1,
+rom.FeatureFunctionalGroup <- rma.mv(yi, V_reduced, mods = ~ Feature_FunctionalGroup - 1,
                                               random = list(~ 1|Study,
+                                                            ~ 1|Study_Experiment,
+                                                            ~ 1|Study_Experiment_Duration,
                                                             ~ 1|Effect_ID,
+                                                            ~ 1|Parameter,
                                                             ~ 1|Species,
                                                             ~ 1|Phylogeny),
-                                                           R = list(Phylogeny = cor3),
+                                                           R = list(Phylogeny = cor2),
                                                            method = "REML",
-                                                           data = meta_reduced2,
+                                                           data = meta_reduced,
                                                            sparse = TRUE, # makes it quicker to run
                                                            control = list(optimizer ="optim"))
 
 
-sum <- summary(rom.FeatureTaxonomicGroup)
-sum_I2 <- i2_ml(rom.FeatureTaxonomicGroup)
-sum_R2 <- r2_ml(rom.FeatureTaxonomicGroup)
+sum <- summary(rom.FeatureFunctionalGroup)
+sum_I2 <- i2_ml(rom.FeatureFunctionalGroup)
+sum_R2 <- r2_ml(rom.FeatureFunctionalGroup)
 
-res.FeatureTaxonomicGroup <-data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
+res.FeatureFunctionalGroup <-data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
                           beta = as.numeric(sum$beta),
                           se = as.numeric(sum$se),
                           percentage_increase_or_decrease_on_treatment = (exp(sum$beta)-1)*100,
@@ -1879,43 +1319,45 @@ res.FeatureTaxonomicGroup <-data.frame(effectname = attr(sum$beta, "dimnames")[[
                           ci.ub = sum$ci.ub,
                           I2_total = sum_I2[[1]],
                           I2_study = sum_I2[[2]],
-                          I2_Effect_ID = sum_I2[[3]],
-                          I2_Species = sum_I2[[4]],
-                          I2_Phylogeny = sum_I2[[5]],
+                          I2_study_experiment = sum_I2[[3]],
+                          I2_study_experiment_duration = sum_I2[[4]],
+                          I2_Effect_ID = sum_I2[[5]],
+                          I2_Species = sum_I2[[6]],
+                          I2_Phylogeny = sum_I2[[7]],
                           R2_marginal_fixed = sum_R2[[1]]*100,
                           R2_conditional_fixed_random = sum_R2[[2]]*100,
                           Moderator_significance_stat = sum$QM,
                           Moderator_significance_pval = sum$QMp,
-                          AIC = rom.FeatureTaxonomicGroup$fit.stats$REML[3])
+                          AIC = rom.FeatureFunctionalGroup$fit.stats$REML[3])
 
 
-res_FeatureTaxonomicGroup_df <- bind_rows(res.FeatureTaxonomicGroup)
-write.csv(res_FeatureTaxonomicGroup_df, file = "./output/ Global_nozeros/summ_FeatureTaxonomicGroup.csv")
+res_FeatureFunctionalGroup_df <- bind_rows(res.FeatureFunctionalGroup)
+write.csv(res_FeatureFunctionalGroup_df, file = "./output/Global_nozeros/summ_FeatureFunctionalGroup.csv")
 
-g_col <- c("#1C9E77","#D95F02","#7570B3","#E6AB01","#4575B4","#882255","#A6761D","#1C9E77","#67A61F","#D95F02","#7570B3","#E6AB01","#4575B4","#882255","#A6761D","#D95F02","#7570B3","#4575B4","#882255")
+g_col <- c("#1C9E77","#D95F02","#7570B3","#E6AB01","#4575B4","#1C9E77","#D95F02","#7570B3","#E6AB01","#4575B4","#882255")
 
-FeatureTaxonomicGroup_orch <-
-  orchard_plot(rom.FeatureTaxonomicGroup, mod = "Feature_TaxonomicGroup", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced2) + scale_fill_manual(values = g_col) + scale_colour_manual(values = g_col) + theme(axis.text.y = element_text(hjust = 0.95, angle=0)) +
+
+FeatureFunctionalGroup_orch <-
+  orchard_plot(rom.FeatureFunctionalGroup, mod = "Feature_FunctionalGroup", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced) + scale_fill_manual(values = g_col) + scale_colour_manual(values = g_col) + theme(axis.text.y = element_text(hjust = 0.95, angle=0)) +
   theme(plot.title = element_text(size = 14, face = "bold"),
         text = element_text(size = 12),
         axis.text.y = element_text(size = 12))
-FeatureTaxonomicGroup_orch
+FeatureFunctionalGroup_orch
 
 ggsave(
- FeatureTaxonomicGroup_orch,
-  file = "./output/ Global_nozeros/FeatureTaxonomicGroup_orch.tiff",
+ FeatureFunctionalGroup_orch,
+  file = "./output/Global_nozeros/FeatureFunctionalGroup_orch.tiff",
   dpi = plot_dpi,
   width = 10,
   height = 8
 )
 
 
-FeatureTaxonomicGroup_cat <-
-  caterpillars(rom.FeatureTaxonomicGroup, mod = "Feature_TaxonomicGroup", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced2)
-FeatureTaxonomicGroup_cat
-ggsave(FeatureTaxonomicGroup_cat, file = "./output/ Global_nozeros/FeatureTaxonomicGroup_cat.tiff", dpi = plot_dpi)
+FeatureFunctionalGroup_cat <-
+  caterpillars(rom.FeatureFunctionalGroup, mod = "Feature_FunctionalGroup", xlab = "Ratio of means", group="Study_Experiment", data=meta_reduced)
+FeatureFunctionalGroup_cat
+ggsave(FeatureFunctionalGroup_cat, file = "./output/Global_nozeros/FeatureFunctionalGroup_cat.tiff", dpi = plot_dpi)
 ```
-
 
 ## Adding Mod Year (timeline bias)
 ```{r}
@@ -1923,15 +1365,17 @@ ggsave(FeatureTaxonomicGroup_cat, file = "./output/ Global_nozeros/FeatureTaxono
 # Year
 
 #model with duration as a continuous moderator
-# you cannot do "-1" --- this means getting the intercept out and you do not want to do this for a slope 
-rom.Year <- rma.mv(yi, V, mods = ~ Year, 
+rom.Year <- rma.mv(yi, V_reduced, mods = ~ Year, 
                                               random = list(~ 1|Study,
+                                                            ~ 1|Study_Experiment,
+                                                            ~ 1|Study_Experiment_Duration,
                                                             ~ 1|Effect_ID,
+                                                            ~ 1|Parameter,
                                                             ~ 1|Species,
                                                             ~ 1|Phylogeny),
-                                            R = list(Phylogeny = cor),
+                                            R = list(Phylogeny = cor2),
                               method="REML",
-                              data=meta,
+                              data=meta_reduced,
                    sparse = TRUE, # makes it quicker to run
                               control = list(optimizer="optim"))
 
@@ -1953,9 +1397,11 @@ res.Year <- data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
                           ci.ub = sum$ci.ub,
                           I2_total = sum_I2[[1]],
                           I2_study = sum_I2[[2]],
-                          I2_Effect_ID = sum_I2[[3]],
-                          I2_Species = sum_I2[[4]],
-                          I2_Phylogeny = sum_I2[[5]],
+                          I2_study_experiment = sum_I2[[3]],
+                          I2_study_experiment_duration = sum_I2[[4]],
+                          I2_Effect_ID = sum_I2[[5]],
+                          I2_Species = sum_I2[[6]],
+                          I2_Phylogeny = sum_I2[[7]],
                           R2_marginal_fixed = sum_R2[[1]]*100,
                           R2_conditional_fixed_random = sum_R2[[2]]*100,
                           Moderator_significance_stat = sum$QM,
@@ -1963,7 +1409,7 @@ res.Year <- data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
                           AIC = rom.Year$fit.stats$REML[3])
 
 res_Year_df <- bind_rows(res.Year)
-write.csv(res_Year_df, file = "./output/ Global_nozeros/summ_Year.csv")
+write.csv(res_Year_df, file = "./output/Global_nozeros/summ_Year.csv")
 
 
 #moatt et al one moderator example.. 
@@ -1972,20 +1418,21 @@ forest(x=c(rom.Year$b),sei=c(rom.Year$se), ci.lb=c(rom.Year$ci.lb), ci.ub=c(rom.
 ```
 
 
-## Adding Mod ALL MODERATORS (left out Parameter here as not really part of the question)
+## Adding Mod ALL MODERATORS 
 
 ```{r}
-rom.All <- rma.mv( yi, V, mods = ~ TaxonomicGroup_Classification +
-                                   Feature_TaxonomicGroup +
-                                   Feature_Classification +
+rom.All <- rma.mv( yi, V_reduced, mods = ~ Feature_FunctionalGroup_Classification +
                                    Year,
                                               random = list(~ 1|Study,
+                                                            ~ 1|Study_Experiment,
+                                                            ~ 1|Study_Experiment_Duration,
                                                             ~ 1|Effect_ID,
+                                                            ~ 1|Parameter,
                                                             ~ 1|Species,
                                                             ~ 1|Phylogeny),
-                                        R = list(Phylogeny = cor),
+                                        R = list(Phylogeny = cor2),
                           method = "REML",
-                          data = meta,
+                          data = meta_reduced,
                    sparse = TRUE, # makes it quicker to run
                           control = list(optimizer="optim"))
 
@@ -2015,8 +1462,9 @@ res.All <- data.frame(effectname = attr(sum$beta, "dimnames")[[1]],
                           AIC = rom.All$fit.stats$REML[3])
 
 res.All_df <- bind_rows(res.All)
-write.csv(res.All_df, file = "./output/ Global_nozeros/summ_All.csv")
+write.csv(res.All_df, file = "./output/Global_nozeros/summ_All.csv")
 ```
+
 
 
 ## Publication bias
@@ -2032,13 +1480,13 @@ Only significant moderators included.
 ###Funnel Plots
 ```{r}
 
-jpeg("./output/ Global_nozeros/funnel_simple._adj.jpg",
+jpeg("./output/Global_nozeros/funnel_simple.jpg",
      width = 600,
      height = 600)
 par(cex = 1.4)
 
 funnel(
-  rom.simple.adj,
+  rom.simple,
   yaxis = "sei",
   level = c(90, 95, 99),
   shade = c("white",
@@ -2049,25 +1497,14 @@ funnel(
 dev.off()
 
 
-rom.All.sign <- rma.mv(yi, V, mods = ~ TaxonomicGroup_Classification +
-                                       Feature_TaxonomicGroup,
-                                              random = list(~ 1|Study,
-                                                            ~ 1|Effect_ID,
-                                                            ~ 1|Species,
-                                                            ~ 1|Phylogeny),
-                                                           R = list(Phylogeny = cor),
-                                                           method = "REML",
-                                                           data = meta,
-                                                           sparse = TRUE, # makes it quicker to run
-                                                           control = list(optimizer ="optim"))
 
 
-jpeg("./output/ Global_nozeros/funnel_All_sign.jpg",
+jpeg("./output/Global_nozeros/funnel_All_sign.jpg",
      width = 600,
      height = 600)
 par(cex = 1.4)
 funnel(
-  rom.All.sign,
+  rom.FeatureFunctionalGroupClassification,
   yaxis = "sei",
   level = c(90, 95, 99),
   shade = c("white",
@@ -2086,38 +1523,44 @@ dev.off()
 ### Eggers regression to test significance of publication bias (no intercept)
 # testing whether any asymmetries in the funnel plots are significant
 
-egger_reg_simple.adj <- rma.mv (yi, V, mods = ~sqrt(vi), 
+egger_reg_simple <- rma.mv (yi, V_reduced, mods = ~sqrt(vi), 
                                               random = list(~ 1|Study,
+                                                            ~ 1|Study_Experiment,
+                                                            ~ 1|Study_Experiment_Duration,
                                                             ~ 1|Effect_ID,
+                                                            ~ 1|Parameter,
                                                             ~ 1|Species,
                                                             ~ 1|Phylogeny),
-                                                 R = list(Phylogeny = cor),
+                                                 R = list(Phylogeny = cor2),
                                    method="REML",
-                                   data=meta,
+                                   data=meta_reduced,
                             sparse = TRUE, # makes it quicker to run
                                    control = list(optimizer="optim"))
 
-summary(egger_reg_simple.adj)
+summary(egger_reg_simple)
 
 # Model Results:
 # 
 #           estimate      se     zval    pval    ci.lb   ci.ub    
-# intrcpt     0.1275  0.1513   0.8430  0.3992  -0.1690  0.4240    
-# sqrt(vi)   -0.0067  0.2565  -0.0261  0.9792  -0.5094  0.4961    
+# intrcpt     1.1465  0.8379   1.3683  0.1712  -0.4957  2.7887    
+# sqrt(vi)   -0.3222  0.2150  -1.4984  0.1340  -0.7437  0.0993    
 # 
 # ---
 # Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 
-egger_reg_All.sign <- rma.mv (yi, V, mods = ~sqrt(vi) +
-                                TaxonomicGroup_Classification+
-                                Feature_TaxonomicGroup , 
+
+egger_reg_All.sign <- rma.mv (yi, V_reduced, mods = ~sqrt(vi) +
+                                Feature_FunctionalGroup_Classification , 
                                               random = list(~ 1|Study,
+                                                            ~ 1|Study_Experiment,
+                                                            ~ 1|Study_Experiment_Duration,
                                                             ~ 1|Effect_ID,
+                                                            ~ 1|Parameter,
                                                             ~ 1|Species,
                                                             ~ 1|Phylogeny),
-                                                 R = list(Phylogeny = cor),
+                                                 R = list(Phylogeny = cor2),
                                    method="REML",
-                                   data=meta,
+                                   data=meta_reduced,
                             sparse = TRUE, # makes it quicker to run
                                    control = list(optimizer="optim"))
 
@@ -2125,49 +1568,81 @@ summary(egger_reg_All.sign)
 
 # Model Results:
 # 
-#                                                estimate      se     zval    pval    ci.lb    ci.ub      
-# intrcpt                                         -0.1930  0.1943  -0.9934  0.3205  -0.5739   0.1878      
-# sqrt(vi)                                         0.0163  0.2566   0.0635  0.9493  -0.4867   0.5193      
-# TaxonomicGroup_ClassificationAlgae_NIS                   0.1351  0.2943   0.4592  0.6461  -0.4416   0.7119      
-# TaxonomicGroup_ClassificationAnthozoans_N                0.5168  0.3933   1.3140  0.1889  -0.2541   1.2878      
-# TaxonomicGroup_ClassificationAscidians_N                -0.0908  0.4616  -0.1967  0.8441  -0.9955   0.8139      
-# TaxonomicGroup_ClassificationAscidians_NIS               0.3190  0.2183   1.4614  0.1439  -0.1088   0.7468      
-# TaxonomicGroup_ClassificationBarnacles_N                 0.0371  0.2187   0.1695  0.8654  -0.3917   0.4658      
-# TaxonomicGroup_ClassificationBarnacles_NIS               0.3579  0.2806   1.2752  0.2022  -0.1922   0.9079      
-# TaxonomicGroup_ClassificationBivalves_N                  1.1935  0.7117   1.6770  0.0935  -0.2014   2.5884    . 
-# TaxonomicGroup_ClassificationBivalves_NIS                0.3304  0.3979   0.8302  0.4064  -0.4496   1.1103      
-# TaxonomicGroup_ClassificationBryozoans_N                 0.3772  0.2145   1.7584  0.0787  -0.0432   0.7977    . 
-# TaxonomicGroup_ClassificationBryozoans_NIS               0.2612  0.2020   1.2930  0.1960  -0.1347   0.6571      
-# TaxonomicGroup_ClassificationPolychaetes_N               0.7623  0.2414   3.1579  0.0016   0.2892   1.2355   ** 
-# TaxonomicGroup_ClassificationPolychaetes_NIS             0.4910  0.2742   1.7907  0.0733  -0.0464   1.0285    . 
-# TaxonomicGroup_ClassificationPoriferans_N                0.2556  0.3283   0.7787  0.4362  -0.3878   0.8991      
-# Feature_TaxonomicGroupMovement_Anthozoans       -0.4267  1.3325  -0.3202  0.7488  -3.0383   2.1849      
-# Feature_TaxonomicGroupMovement_Ascidians         0.6800  0.1935   3.5146  0.0004   0.3008   1.0593  *** 
-# Feature_TaxonomicGroupMovement_Barnacles         0.6478  0.1583   4.0924  <.0001   0.3375   0.9580  *** 
-# Feature_TaxonomicGroupMovement_Bivalves          1.2209  0.4006   3.0480  0.0023   0.4358   2.0060   ** 
-# Feature_TaxonomicGroupMovement_Bryozoans        -0.2461  0.1367  -1.8007  0.0718  -0.5140   0.0218    . 
-# Feature_TaxonomicGroupMovement_Polychaetes      -0.5940  0.1491  -3.9848  <.0001  -0.8862  -0.3018  *** 
-# Feature_TaxonomicGroupMovement_Poriferans       -0.0601  0.2800  -0.2147  0.8300  -0.6089   0.4887      
-# Feature_TaxonomicGroupOrientation_Algae         -0.4625  0.2623  -1.7631  0.0779  -0.9766   0.0516    . 
-# Feature_TaxonomicGroupOrientation_Anthozoans     0.3231  0.3911   0.8261  0.4088  -0.4435   1.0896      
-# Feature_TaxonomicGroupOrientation_Ascidians      0.1306  0.0997   1.3096  0.1903  -0.0648   0.3260      
-# Feature_TaxonomicGroupOrientation_Barnacles      0.4459  0.0814   5.4795  <.0001   0.2864   0.6054  *** 
-# Feature_TaxonomicGroupOrientation_Bryozoans     -0.0065  0.0636  -0.1020  0.9187  -0.1311   0.1181      
-# Feature_TaxonomicGroupOrientation_Polychaetes   -0.0998  0.1100  -0.9073  0.3642  -0.3153   0.1158      
-# Feature_TaxonomicGroupSubstrate_Algae           -0.0203  0.6851  -0.0297  0.9763  -1.3632   1.3225      
+#                                                                    estimate      se 
+# intrcpt                                                              0.5699  3.3392 
+# sqrt(vi)                                                            -0.2939  0.2155 
+# Feature_FunctionalGroup_ClassificationMovement_Algae_NIS             0.1097  0.8077 
+# Feature_FunctionalGroup_ClassificationMovement_Ascidians_N           4.1322  4.2768 
+# Feature_FunctionalGroup_ClassificationMovement_Ascidians_NIS         3.6532  4.2154 
+# Feature_FunctionalGroup_ClassificationMovement_Barnacles_N          -0.3500  4.6574 
+# Feature_FunctionalGroup_ClassificationMovement_Barnacles_NIS        -0.6398  4.7134 
+# Feature_FunctionalGroup_ClassificationMovement_Bryozoans_N          -1.5761  4.1756 
+# Feature_FunctionalGroup_ClassificationMovement_Bryozoans_NIS        -2.5644  4.1607 
+# Feature_FunctionalGroup_ClassificationMovement_Polychaetes_N        -0.5330  4.6622 
+# Feature_FunctionalGroup_ClassificationMovement_Polychaetes_NIS      -1.2864  4.6978 
+# Feature_FunctionalGroup_ClassificationOrientation_Algae_N           -1.2733  0.9825 
+# Feature_FunctionalGroup_ClassificationOrientation_Algae_NIS          1.2946  1.3649 
+# Feature_FunctionalGroup_ClassificationOrientation_Ascidians_N        3.6851  4.2625 
+# Feature_FunctionalGroup_ClassificationOrientation_Ascidians_NIS      5.4876  4.2757 
+# Feature_FunctionalGroup_ClassificationOrientation_Barnacles_N        0.0742  4.7166 
+# Feature_FunctionalGroup_ClassificationOrientation_Barnacles_NIS     -1.2871  4.7444 
+# Feature_FunctionalGroup_ClassificationOrientation_Bryozoans_N       -0.0390  4.2312 
+# Feature_FunctionalGroup_ClassificationOrientation_Bryozoans_NIS     -0.6818  4.2272 
+# Feature_FunctionalGroup_ClassificationOrientation_Polychaetes_N     -0.1211  4.6916 
+# Feature_FunctionalGroup_ClassificationOrientation_Polychaetes_NIS    0.7535  4.7567 
+# Feature_FunctionalGroup_ClassificationSubstrate_Bivalves_N          -1.6339  4.7549 
+# Feature_FunctionalGroup_ClassificationSubstrate_Bivalves_NIS        -2.7468  4.8762 
+#                                                                       zval    pval 
+# intrcpt                                                             0.1707  0.8645 
+# sqrt(vi)                                                           -1.3638  0.1726 
+# Feature_FunctionalGroup_ClassificationMovement_Algae_NIS            0.1359  0.8919 
+# Feature_FunctionalGroup_ClassificationMovement_Ascidians_N          0.9662  0.3339 
+# Feature_FunctionalGroup_ClassificationMovement_Ascidians_NIS        0.8666  0.3861 
+# Feature_FunctionalGroup_ClassificationMovement_Barnacles_N         -0.0751  0.9401 
+# Feature_FunctionalGroup_ClassificationMovement_Barnacles_NIS       -0.1357  0.8920 
+# Feature_FunctionalGroup_ClassificationMovement_Bryozoans_N         -0.3775  0.7058 
+# Feature_FunctionalGroup_ClassificationMovement_Bryozoans_NIS       -0.6163  0.5377 
+# Feature_FunctionalGroup_ClassificationMovement_Polychaetes_N       -0.1143  0.9090 
+# Feature_FunctionalGroup_ClassificationMovement_Polychaetes_NIS     -0.2738  0.7842 
+# Feature_FunctionalGroup_ClassificationOrientation_Algae_N          -1.2959  0.1950 
+# Feature_FunctionalGroup_ClassificationOrientation_Algae_NIS         0.9485  0.3429 
+# Feature_FunctionalGroup_ClassificationOrientation_Ascidians_N       0.8645  0.3873 
+# Feature_FunctionalGroup_ClassificationOrientation_Ascidians_NIS     1.2834  0.1993 
+# Feature_FunctionalGroup_ClassificationOrientation_Barnacles_N       0.0157  0.9874 
+# Feature_FunctionalGroup_ClassificationOrientation_Barnacles_NIS    -0.2713  0.7862 
+# Feature_FunctionalGroup_ClassificationOrientation_Bryozoans_N      -0.0092  0.9926 
+# Feature_FunctionalGroup_ClassificationOrientation_Bryozoans_NIS    -0.1613  0.8719 
+# Feature_FunctionalGroup_ClassificationOrientation_Polychaetes_N    -0.0258  0.9794 
+# Feature_FunctionalGroup_ClassificationOrientation_Polychaetes_NIS   0.1584  0.8741 
+# Feature_FunctionalGroup_ClassificationSubstrate_Bivalves_N         -0.3436  0.7311 
+# Feature_FunctionalGroup_ClassificationSubstrate_Bivalves_NIS       -0.5633  0.5732 
+#                                                                       ci.lb    ci.ub    
+# intrcpt                                                             -5.9747   7.1146    
+# sqrt(vi)                                                            -0.7162   0.1285    
+# Feature_FunctionalGroup_ClassificationMovement_Algae_NIS            -1.4733   1.6927    
+# Feature_FunctionalGroup_ClassificationMovement_Ascidians_N          -4.2502  12.5146    
+# Feature_FunctionalGroup_ClassificationMovement_Ascidians_NIS        -4.6089  11.9153    
+# Feature_FunctionalGroup_ClassificationMovement_Barnacles_N          -9.4782   8.7783    
+# Feature_FunctionalGroup_ClassificationMovement_Barnacles_NIS        -9.8779   8.5984    
+# Feature_FunctionalGroup_ClassificationMovement_Bryozoans_N          -9.7601   6.6079    
+# Feature_FunctionalGroup_ClassificationMovement_Bryozoans_NIS       -10.7193   5.5905    
+# Feature_FunctionalGroup_ClassificationMovement_Polychaetes_N        -9.6708   8.6048    
+# Feature_FunctionalGroup_ClassificationMovement_Polychaetes_NIS     -10.4938   7.9211    
+# Feature_FunctionalGroup_ClassificationOrientation_Algae_N           -3.1990   0.6524    
+# Feature_FunctionalGroup_ClassificationOrientation_Algae_NIS         -1.3805   3.9697    
+# Feature_FunctionalGroup_ClassificationOrientation_Ascidians_N       -4.6692  12.0394    
+# Feature_FunctionalGroup_ClassificationOrientation_Ascidians_NIS     -2.8926  13.8679    
+# Feature_FunctionalGroup_ClassificationOrientation_Barnacles_N       -9.1702   9.3187    
+# Feature_FunctionalGroup_ClassificationOrientation_Barnacles_NIS    -10.5859   8.0117    
+# Feature_FunctionalGroup_ClassificationOrientation_Bryozoans_N       -8.3319   8.2540    
+# Feature_FunctionalGroup_ClassificationOrientation_Bryozoans_NIS     -8.9670   7.6034    
+# Feature_FunctionalGroup_ClassificationOrientation_Polychaetes_N     -9.3164   9.0743    
+# Feature_FunctionalGroup_ClassificationOrientation_Polychaetes_NIS   -8.5695  10.0765    
+# Feature_FunctionalGroup_ClassificationSubstrate_Bivalves_N         -10.9534   7.6856    
+# Feature_FunctionalGroup_ClassificationSubstrate_Bivalves_NIS       -12.3041   6.8104    
 # 
 # ---
 # Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
-
 ```
 
-#Combined summary table
-Creating a  summary table of all the results summaries 
-```{r}
-#get list of summaries
-summaries <- mget(ls(pattern = "(res[^_])"))
-#[^_] = NOT underscore (ie avoiding underscores)
-summaries_df<-bind_rows(summaries, .id = "name")
 
-write.csv(summaries_df, file = "./output/ Global_nozeros/invasives_results.csv")
-```
